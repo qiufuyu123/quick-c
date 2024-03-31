@@ -1,3 +1,6 @@
+u8 _debug_ = 1;
+
+
 struct sub{
     u32 m;
     u32 n;
@@ -35,14 +38,15 @@ c.test_sub_ptr.m;
 c.test_sub_ptr.n = c.test_sub_ptr.n+1;
 c.test_sub_ptr.n;
 
-u8 test2(){
+u16 test2(){
     aaa inside;
-    inside.bbb = 111;
-    inside.ccc = 222;
-    inside.ddd = 333;
+    inside.bbb = 127;
+    inside.ccc = 11;
+    inside.ddd = 33;
+    inside.bbb;
     return inside.bbb;
 }
-test2();
+console.print(test2(),2);
 //expect:
 // 255
 // 128
@@ -51,6 +55,8 @@ test2();
 // 3222
 // 999
 // 889
-// 111
-// 222
-// 77
+// 127
+// 11
+// 33
+// 127
+// 127

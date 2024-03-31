@@ -1,3 +1,6 @@
+u8 _debug_ = 1;
+
+
 u64 a = 0xffff8888ffff8888;
 a;
 u8 *addr = &a;

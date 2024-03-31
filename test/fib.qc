@@ -1,4 +1,5 @@
 
+
 u64 fib(u64 a){
     u64 b = 1;
     if(a <= 2){
@@ -8,5 +9,4 @@ u64 fib(u64 a){
     return b;
 }
 
-u64 e = fib(7);
-e;
+console.print(fib(7),7);

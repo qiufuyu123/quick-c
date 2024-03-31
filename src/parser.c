@@ -131,9 +131,9 @@ int struct_offset(parser_t*p ,proto_t *type,token_t name,proto_sub_t *sub_){
     return -1;
 }
 
-void ident_update_off(parser_t *p,var_t*parent, int offset){
+void ident_update_off(parser_t *p,var_t*parent, int offset,bool force){
     if(offset){
-        if(parent->base_addr == 0){
+        if(parent->base_addr == 0|| force){
             emit_load(p->m, REG_CX, offset);
             if(!parent->isglo){
                 emit_addr2r(p->m, REG_BX, REG_SP);
@@ -142,7 +142,12 @@ void ident_update_off(parser_t *p,var_t*parent, int offset){
             emit_addr2r(p->m, REG_BX, REG_CX);
         }
         else {
-            emit_load(p->m, REG_BX, parent->base_addr+offset);
+            if(parent->isglo){
+                emit_load(p->m, REG_BX, parent->base_addr+offset);
+            }
+            else {
+                parent->base_addr+=offset;
+            }
         }
     }
 }
@@ -181,7 +186,9 @@ void expr_ident(parser_t* p, var_t *inf){
             inf->type = sub.builtin;
             if(parent.ptr_depth){
                 is_fst = 1;
-                ident_update_off(p, &parent, offset);
+                if(!parent.isglo)
+                    emit_load(p->m, REG_BX, parent.base_addr);
+                ident_update_off(p, &parent, offset,1);
                 // emit_load(p->m, REG_CX, offset);
                 // if(!p->isglo){
                 //     emit_addr2r(p->m, REG_BX, REG_SP);
@@ -214,8 +221,8 @@ void expr_ident(parser_t* p, var_t *inf){
            break;
         }
     }
-    ident_update_off(p, &parent, offset);
-
+    ident_update_off(p, &parent, offset,0);
+    inf->base_addr = parent.base_addr;
 }
 
 void assignment(parser_t *p,var_t *v){
@@ -688,18 +695,20 @@ int expression(parser_t*p){
         // if(inf.type!=TP_CUSTOM && inf.isglo){
         //     emit_mov_addr2r(p->m, REG_AX, REG_AX);
         // }
-        u64 addr = debuglibs[DBG_PRINT_INT];
-        // load params
-        //printf("will debug:%llx\n",inf.base_addr);
-        if(!inf.isglo){
-            emit_rbpload(p->m, inf.type, inf.base_addr);
+        if(hashmap_get(&p->m->sym_table, "_debug_", 7)){
+            u64 addr = debuglibs[DBG_PRINT_INT];
+            // load params
+            //printf("will debug:%llx\n",inf.base_addr);
+            if(!inf.isglo){
+                emit_rbpload(p->m, inf.type, inf.base_addr);
+            }
+            emit_mov_r2r(p->m, REG_DI, REG_AX); // mov rcx,rax
+            emit_load(p->m, REG_SI, inf.ptr_depth?TP_U64-TP_I8: inf.type - TP_I8); 
+            //
+            //int s = emit_call_enter(p->m, 2); // 2params
+            emit_call(p->m, addr);
+            //emit_call_leave(p->m, s);
         }
-        emit_mov_r2r(p->m, REG_DI, REG_AX); // mov rcx,rax
-        emit_load(p->m, REG_SI, inf.ptr_depth?TP_U64-TP_I8: inf.type - TP_I8); 
-        //
-        //int s = emit_call_enter(p->m, 2); // 2params
-        emit_call(p->m, addr);
-        //emit_call_leave(p->m, s);
         
     }else if(tt == TK_INT || tt == TK_FLOAT){
         //const expression?

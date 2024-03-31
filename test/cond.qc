@@ -1,3 +1,5 @@
+u8 _debug_ = 1;
+
 u8 test(u8 a){
     if(a%2){
         return 2;

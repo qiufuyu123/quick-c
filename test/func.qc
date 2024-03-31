@@ -1,3 +1,6 @@
+u8 _debug_ = 1;
+
+
 u8 f(u8 e,u8 g,u8 h){
     e;
     g;
