@@ -28,6 +28,9 @@ void trigger_parser_err(parser_t* p,const char *s,...){
 }
 
 void load_b2a(parser_t*p, char type){
+    if(type < TP_I64){
+        emit(p->m, 0x48);emit(p->m, 0x31);emit(p->m, 0xc0); // xor rax,rax
+    }
     switch (type) {
             case TP_I8: case TP_U8:
                 emit(p->m, 0x8a);emit(p->m, 0x03);
@@ -44,6 +47,7 @@ void load_b2a(parser_t*p, char type){
             case TP_CUSTOM:
                 break;
     }
+
 }
 
 void expr_root(parser_t*p,var_t*inf);
@@ -242,6 +246,9 @@ void expr_prim(parser_t* p,var_t *inf,bool left_val_only){
     }else if(t == TK_IDENT){
         if(lexer_skip(p->l, '(')){
                 //function call
+            if(left_val_only){
+                trigger_parser_err(p, "Function call cannot be a left val");
+            }
             var_t *v = hashmap_get(&p->m->sym_table, &p->l->code[p->l->tk_now.start], p->l->tk_now.length);
             if(v==NULL)
                 trigger_parser_err(p, "function not exists!");
@@ -321,7 +328,7 @@ void expr_muldiv(parser_t *p,var_t *inf){
         }else {
             emit_load(p->m, REG_DI, 0);
             emit_divrbx(p->m);
-            emit_mov_r2r(p->m, REG_AX, REG_DI);
+            emit_mov_r2r(p->m, REG_AX, REG_DX);
         }
     }
     *inf = left;
@@ -443,7 +450,7 @@ int def_stmt(parser_t *p,int *ptr_depth,char *builtin,proto_t** proto,token_t *n
 
 void stmt(parser_t *p);
 
-int arg_decl(parser_t *p,int offset,hashmap_t *dst){
+int arg_decl(parser_t *p,int offset,hashmap_t *dst,char *btin){
     int ptr_depth;
     char builtin;
     proto_t *type;
@@ -453,6 +460,7 @@ int arg_decl(parser_t *p,int offset,hashmap_t *dst){
     token_t name = p->l->tk_now;
     hashmap_put(dst, &p->l->code[name.start], name.length, r);
     hashmap_put(&p->m->local_sym_table, &p->l->code[name.start], name.length, r);
+    *btin = builtin;
     return sz;
 }
 
@@ -481,6 +489,13 @@ void restore_arg(parser_t *p,int no,int offset,char w){
                                 );
     emit_reg2rbp(p->m, w, offset);
 
+}
+
+void stmt_loop(parser_t *p){
+    while (!lexer_skip(p->l, '}')) {
+            lexer_next(p->l);
+            stmt(p);
+    }
 }
 
 var_t* var_def(parser_t*p){
@@ -513,9 +528,9 @@ var_t* var_def(parser_t*p){
         int no  = 1;
         while (!lexer_skip(p->l, ')')) {
             lexer_next(p->l);
-            sz = arg_decl(p, offset, &func->arg_table);
+            sz = arg_decl(p, offset, &func->arg_table,&builtin);
             offset+=sz;
-            restore_arg(p, no, offset, sz);
+            restore_arg(p, no, offset, builtin);
             no++;
             if(lexer_skip(p->l, ')')){
                 break;
@@ -528,10 +543,11 @@ var_t* var_def(parser_t*p){
         }
         
         p->m->stack=offset;
-        while (!lexer_skip(p->l, '}')) {
-            lexer_next(p->l);
-            stmt(p);
-        }
+
+        var_t* nv = var_new_base(func?TP_FUNC:builtin, (u64)func, func?1:ptr_depth,p->isglo,prot);
+        hashmap_put(&p->m->sym_table, &p->l->code[name.start], name.length, nv);
+        stmt_loop(p);
+
         module_clean_stack_sym(p->m);
         lexer_next(p->l);
         p->m->stack = BYTE_ALIGN(p->m->stack, 16);
@@ -544,6 +560,8 @@ var_t* var_def(parser_t*p){
         }
         
         *jmp = (u64)jit_top(p->m);
+        
+        return nv;
     }
     var_t* nv = var_new_base(func?TP_FUNC:builtin, 0, func?1:ptr_depth,p->isglo,prot);
     if(p->isglo){
@@ -694,6 +712,40 @@ void stmt(parser_t *p){
         }
         emit(p->m, 0xc9); //leave
         emit(p->m, 0xc3);
+    }else if(tt == TK_IF){
+        lexer_expect(p->l, '(');
+        lexer_next(p->l);
+        var_t inf;
+        expr_root(p,&inf);
+        lexer_expect(p->l, ')');
+        lexer_expect(p->l, '{');
+        if(inf.type == TP_CUSTOM && inf.ptr_depth == 0)
+            trigger_parser_err(p, "Cannot compare!");
+        /*
+            if al == 0:
+                jmp else_end
+            else:
+
+            else:end
+
+        */
+        emit(p->m, 0x3c);emit(p->m,0x00); // cmp al,0
+        emit(p->m, 0x75);emit(p->m,0x0c);  // jne +0x0c +
+        u64* els = emit_jmp_flg(p->m);  // jmpq rax |
+                                                       //        <-+
+        stmt_loop(p);
+        lexer_next(p->l);
+        *els = (u64)jit_top(p->m);
+        if(lexer_skip(p->l, TK_ELSE)){
+            lexer_next(p->l);
+            lexer_expect(p->l, '{');
+            u64 *els_end = emit_jmp_flg(p->m);
+            *els = (u64)jit_top(p->m);
+            stmt_loop(p);
+            lexer_next(p->l);
+            *els_end = (u64)jit_top(p->m);
+        }
+        return;
     }
     else {
         if(expression(p))
@@ -716,5 +768,5 @@ void parser_start(module_t *m,Lexer_t* lxr){
     emit(m, 0xc9); // leave
     emit(m, 0xc3); // ret
     int (*test)() = m->jit_compiled;
-    printf("JIT(%d bytes) CALLED:%d\n",m->jit_compiled_len, test());
+    printf("JIT(%d bytes) CALLED:%d\n",m->jit_cur, test());
 }

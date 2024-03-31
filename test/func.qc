@@ -1,8 +1,8 @@
-u8 f(u8 e,u8 f,u8 g){
+u8 f(u8 e,u8 g,u8 h){
     e;
-    f;
     g;
-
+    h;
+    
     u8 a = 123;
     u16 b = 32762;
     u32 c = 123123123;
@@ -20,7 +20,7 @@ u16 glo_val = 666;
 u16 *test(){
     return &glo_val;
 }
-u16 nil_call = f2(2,3,4)+f();
+u16 nil_call = f2(3,3,4)+f();
 nil_call;
 u16 get = *test();
 get;

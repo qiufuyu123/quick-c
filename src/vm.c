@@ -234,6 +234,7 @@ void emit_reg2rbp(module_t*v,char src,u32 offset){
 
 void emit_rbpload(module_t *v,char w,u32 offset){
     offset = -offset;
+    emit_load(v, REG_AX, 0);
      switch (w) {
         case TP_U8:case TP_I8:
             emit(v, 0x8a);
