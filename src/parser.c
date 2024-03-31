@@ -101,12 +101,14 @@ void func_call(parser_t *p,var_t* inf,bool useaddr){
         inf->ptr_depth = func->ret_type.ptr_depth;
         inf->type = func->ret_type.builtin;
         inf->prot = func->ret_type.type;
-    }else{
+    }else if(inf->ptr_depth){
         emit_mov_addr2r(p->m, REG_AX, REG_BX);
         // ax--> jump dst
         lexer_next(p->l);
         prepare_calling(p);
         emit(p->m, 0xff);emit(p->m,0xd0); // callq [rax]
+    }else {
+        trigger_parser_err(p, "Cannot Call!");
     }
 }
 

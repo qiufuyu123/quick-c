@@ -24,7 +24,7 @@ function_frame_t _print_ptr[2] ={
     (function_frame_t){
         .ptr = (u64)qc_lib_print,
         .ret_type.builtin=TP_U64,
-        .ret_type.ptr_depth=1},
+        .ret_type.ptr_depth=0},
         (function_frame_t){
         .ptr = (u64)qc_lib_whoami,
         .ret_type.builtin=TP_U64,

@@ -242,10 +242,12 @@ token_t lexer_expect(Lexer_t *lex,Tk type){
 }
 
 bool lexer_skip(Lexer_t *lex,Tk type){
+    int old_col = lex->line;
     token_t tk_old = lex->tk_now;
     int old = lex->cursor;
     bool r = lexer_next(lex).type == type;
     lex->cursor = old;
+    lex->line = old_col;
     lex->tk_now = tk_old;
     return r;
 }
