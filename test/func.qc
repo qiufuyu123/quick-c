@@ -20,11 +20,22 @@ u16 glo_val = 666;
 u16 *test(){
     return &glo_val;
 }
-u16 nil_call = f2(3,3,4)+f();
+u16 nil_call = f2(3,3,4)+f(0,0,0);
 nil_call;
 u16 get = *test();
 get;
 
 
 
-//expect 246
+//expect:
+// 3
+// 3
+// 4
+// 123
+// 123
+// 0
+// 0
+// 0
+// 123
+// 2147
+// 666

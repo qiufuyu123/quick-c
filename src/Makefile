@@ -1,7 +1,7 @@
 CC := gcc
 CC_FLAGS := -Wall -std=gnu99 -O0 -g -I ../include
 
-SRC = $(wildcard ./*.c)
+SRC = $(wildcard ./*.c ./lib/*.c)
 OBJ = $(patsubst %.c, %.o, $(SRC))
 
 all: $(OBJ)

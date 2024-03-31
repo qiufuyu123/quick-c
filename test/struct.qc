@@ -35,6 +35,14 @@ c.test_sub_ptr.m;
 c.test_sub_ptr.n = c.test_sub_ptr.n+1;
 c.test_sub_ptr.n;
 
+u8 test2(){
+    aaa inside;
+    inside.bbb = 111;
+    inside.ccc = 222;
+    inside.ddd = 333;
+    return inside.bbb;
+}
+test2();
 //expect:
 // 255
 // 128
@@ -43,3 +51,6 @@ c.test_sub_ptr.n;
 // 3222
 // 999
 // 889
+// 111
+// 222
+// 77

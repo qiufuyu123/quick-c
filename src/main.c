@@ -8,7 +8,7 @@
 
 int main(int argc,char**argv){
     Lexer_t lex;
-    char *path = "./test/fib.qc";
+    char *path = "./test/lib.qc";
     if(argc==2){
         path = argv[1];
         // printf("Please input codes from stdin!");

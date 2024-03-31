@@ -2,11 +2,13 @@
 #include "define.h"
 #include "hashmap.h"
 #include "lex.h"
+#include "lib/console.h"
 #include "vec.h"
 #include "vm.h"
 #include "debuglib.h"
 
 
+#include <bits/types/FILE.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -56,6 +58,10 @@ void prepare_calling(parser_t*p){
     var_t inf;
     int no = 1;
     while (!lexer_skip(p->l, ')')) {
+        if(no == 1){
+            emit_pushrax(p->m);
+            emit(p->m, 0x53); // push rbx
+        }
         lexer_next(p->l);
         expr_root(p, &inf);
         if(inf.type == TP_CUSTOM && inf.ptr_depth == 0){
@@ -76,36 +82,41 @@ void prepare_calling(parser_t*p){
         }
         lexer_expect(p->l, ',');
     }
+    if(no > 1){
+        emit(p->m, 0x5b); // pop rbx
+        emit_poprax(p->m);
+    }
+
     lexer_next(p->l);
 }
 
-void var_load(parser_t* p,var_t* v,bool left_val){
-    if(v->isglo){
-        if(left_val){
-            emit_load(p->m, REG_AX, v->base_addr);
-            return;
-        }
-        emit_load(p->m, REG_BX, v->base_addr);
-        if(v->ptr_depth){
-            emit(p->m, 0x48); emit(p->m, 0x8b);emit(p->m, 0x03);
-            return;
-        }
-        
-        
-    }else {
-        if(left_val)
-            return;
-        emit_rbpload(p->m, v->type, v->base_addr);
-        return;
-
+void func_call(parser_t *p,var_t* inf,bool useaddr){
+    if(!useaddr && inf->type == TP_FUNC){
+        lexer_next(p->l);
+        function_frame_t *func = (function_frame_t*)inf->base_addr;
+        // set up arguments
+        prepare_calling(p);
+        //                
+        emit_call(p->m,func->ptr);
+        inf->ptr_depth = func->ret_type.ptr_depth;
+        inf->type = func->ret_type.builtin;
+        inf->prot = func->ret_type.type;
+    }else{
+        emit_mov_addr2r(p->m, REG_AX, REG_BX);
+        // ax--> jump dst
+        lexer_next(p->l);
+        prepare_calling(p);
+        emit(p->m, 0xff);emit(p->m,0xd0); // callq [rax]
     }
-    load_b2a(p,v->type);
 }
 
-void var_load_struc(parser_t* p,u64 base_addr){
-    // all structure will only load the base addr
-    emit_load(p->m, REG_AX, base_addr);
+void prep_assign(parser_t *p,var_t *v){
+    if(v->type == TP_CUSTOM && v->ptr_depth == 0)
+        trigger_parser_err(p, "Struct is not supported");
+    if(v->isglo)
+        emit_load(p->m, REG_BX, v->base_addr);
 }
+
 
 int struct_offset(parser_t*p ,proto_t *type,token_t name,proto_sub_t *sub_){
     proto_debug(type);
@@ -117,7 +128,24 @@ int struct_offset(parser_t*p ,proto_t *type,token_t name,proto_sub_t *sub_){
     }
     return -1;
 }
-int expr_ident(parser_t* p, var_t *inf,bool left_val){
+
+void ident_update_off(parser_t *p,var_t*parent, int offset){
+    if(offset){
+        if(parent->base_addr == 0){
+            emit_load(p->m, REG_CX, offset);
+            if(!parent->isglo){
+                emit_addr2r(p->m, REG_BX, REG_SP);
+                parent->isglo = TRUE;
+            }
+            emit_addr2r(p->m, REG_BX, REG_CX);
+        }
+        else {
+            emit_load(p->m, REG_BX, parent->base_addr+offset);
+        }
+    }
+}
+
+void expr_ident(parser_t* p, var_t *inf){
     var_t *t = VAR_EXIST_GLO;
     if(t == NULL){
         t = VAR_EXIST_LOC;
@@ -127,17 +155,14 @@ int expr_ident(parser_t* p, var_t *inf,bool left_val){
     }
     var_t parent = *t;
     *inf = parent;
-    if(inf->type != TP_CUSTOM){
-        var_load(p, t,left_val);
-        return 0;
+    if(parent.type != TP_FUNC && parent.isglo){
+        emit_load(p->m, REG_BX, parent.base_addr);
     }
-    emit_load(p->m, REG_BX, parent.base_addr);
     int offset = 0;
-    inf->base_addr = 1;
-    printf("base addr = 1");
+    bool is_fst = 0;
     while (1) {
+        
         if(lexer_skip(p->l, '.') && parent.type == TP_CUSTOM){
-
             lexer_next(p->l);
             token_t name = lexer_next(p->l);
             if(name.type != TK_IDENT){
@@ -153,42 +178,89 @@ int expr_ident(parser_t* p, var_t *inf,bool left_val){
             inf->ptr_depth = sub.ptr_depth;
             inf->type = sub.builtin;
             if(parent.ptr_depth){
-                emit_load(p->m, REG_CX, offset);
-                emit_addr2r(p->m, REG_BX, REG_CX);
-                if(!p->isglo){
-                    emit_addr2r(p->m, REG_BX, REG_SP);
-                    parent.isglo = TRUE;
-                }
+                is_fst = 1;
+                ident_update_off(p, &parent, offset);
+                // emit_load(p->m, REG_CX, offset);
+                // if(!p->isglo){
+                //     emit_addr2r(p->m, REG_BX, REG_SP);
+                //     parent.isglo = TRUE;
+                // }
+                // emit_addr2r(p->m, REG_BX, REG_CX);
                 emit_mov_addr2r(p->m, REG_BX, REG_BX);
                 offset = 0;
-                
+                // now base_addr is meaningless
+                parent.base_addr = 0;
             }
             offset += r;
             parent.ptr_depth = sub.ptr_depth;
             parent.prot = sub.type;
-            parent.base_addr = inf->base_addr;
             parent.type = sub.builtin;
             
         }else if(lexer_skip(p->l, '[')){
             trigger_parser_err(p, "Not supported yet");
+        }else if(lexer_skip(p->l, '(')){
+            if(!is_fst){
+                parent.base_addr+=offset;
+            }
+            func_call(p, &parent,is_fst);
+            emit_mov_r2r(p->m, REG_BX, REG_AX);
+            parent.type = TP_U64;
+            *inf = parent;
+            inf->isglo = 2;
+            is_fst=1;
         }else {
            break;
         }
     }
-    if(offset){
-        emit_load(p->m, REG_CX, offset);
-        emit_addr2r(p->m, REG_BX, REG_CX);
-        if(!parent.isglo){
-            emit_addr2r(p->m, REG_BX, REG_SP);
-        }
-    }
-    if(inf->type != TP_CUSTOM && !left_val){
-        load_b2a(p, inf->type);
-    }else {
-        emit_mov_r2r(p->m, REG_AX, REG_BX);
-    }
-    return 1;
+    ident_update_off(p, &parent, offset);
+
 }
+
+void assignment(parser_t *p,var_t *v){
+    if(v->type >= TP_INTEGER && v->type < TP_CUSTOM){
+        trigger_parser_err(p, "Cannot assign to a constant");
+    }
+    var_t left;
+    if(v->isglo)
+        emit(p->m, 0x53); // push rbx
+    expr_root(p, &left);
+    if(v->isglo)
+        emit(p->m, 0x5b); // pop rbx
+    if(left.type != TP_CUSTOM){
+        // basic types --> already loaded into rax
+        
+        if(!v->isglo){
+            emit_reg2rbp(p->m, v->ptr_depth?TP_U64:v->type, v->base_addr);
+            //TODO: local variable
+            return;
+        }
+        if(v->ptr_depth){
+            emit(p->m,0x48);emit(p->m, 0x89);emit(p->m, 0x03);
+            return;
+        }
+        if(v->type == TP_CUSTOM){
+            trigger_parser_err(p, "Unmatched type while assigning");
+        }
+        switch (v->type) {
+            case TP_I8: case TP_U8:
+                emit(p->m, 0x88);emit(p->m, 0x03);
+                break;
+            case TP_I16: case TP_U16:
+                emit(p->m, 0x66);emit(p->m, 0x89);emit(p->m, 0x03);
+                break;
+            case TP_I32: case TP_U32:
+                emit(p->m, 0x89);emit(p->m, 0x03);
+                break;
+            default:
+                emit(p->m,0x48);emit(p->m, 0x89);emit(p->m, 0x03);
+                break;
+        
+        }
+    }else {
+        trigger_parser_err(p, "struct assign not support!");
+    }
+}
+
 
 void expr_prim(parser_t* p,var_t *inf,bool left_val_only){
     Tk t = p->l->tk_now.type;
@@ -244,31 +316,35 @@ void expr_prim(parser_t* p,var_t *inf,bool left_val_only){
         }
         
     }else if(t == TK_IDENT){
-        if(lexer_skip(p->l, '(')){
-                //function call
-            if(left_val_only){
-                trigger_parser_err(p, "Function call cannot be a left val");
-            }
-            var_t *v = hashmap_get(&p->m->sym_table, &p->l->code[p->l->tk_now.start], p->l->tk_now.length);
-            if(v==NULL)
-                trigger_parser_err(p, "function not exists!");
-            if(v->type == TP_FUNC){
-                lexer_next(p->l);
-                function_frame_t *func = (function_frame_t*)v->base_addr;
-                // set up arguments
-                prepare_calling(p);
-                //                
-                emit_call(p->m,func->ptr);
-                inf->ptr_depth = func->ret_type.ptr_depth;
-                inf->type = func->ret_type.builtin;
-                inf->prot = func->ret_type.type;
-            }else {
-                trigger_parser_err(p, "Cannot call!");
-            }
-            
+
+        expr_ident(p, inf);
+        if(inf->isglo == 2){
+            // function call return
+            inf->isglo = 1;
             return;
         }
-        expr_ident(p, inf,left_val_only);
+        if(left_val_only)
+            return;
+        // only 2 possible:
+        // inf.isglo ==> addr of it loaded to BX
+        // !inf.isglo ==> nothing is loaded
+        if(inf->type == TP_CUSTOM && inf->ptr_depth == 0){
+                trigger_parser_err(p, "Struct loaded is not supported!");
+        }
+
+        if(lexer_skip(p->l, '=')){
+            // possible assignment:
+            lexer_next(p->l);lexer_next(p->l);
+            assignment(p, inf);
+            return;
+        }
+        
+        if(inf->isglo){    
+            load_b2a(p, inf->ptr_depth?TP_U64: inf->type);
+            return;
+        }
+        emit_rbpload(p->m, inf->type, inf->base_addr);
+        inf->isglo = TRUE;
         return;
     }else if(t == '('){
         lexer_next(p->l);
@@ -282,20 +358,34 @@ void expr_prim(parser_t* p,var_t *inf,bool left_val_only){
         lexer_next(p->l);
         var_t left;
         expr_prim(p, &left,TRUE);
-        inf->base_addr = 0;
+        if(left.isglo){
+            emit_mov_r2r(p->m, REG_AX, REG_BX);
+        }else {
+            emit_mov_r2r(p->m, REG_AX, REG_SP);
+            emit_load(p->m, REG_BX, left.base_addr);
+            emit_addr2r(p->m, REG_AX, REG_BX);
+        }
+        inf->ptr_depth++;
     }else if(t == '*'){
+        if(left_val_only)
+            trigger_parser_err(p, "De-ptr cannot be a left val");
         lexer_next(p->l);
         var_t left;
         expr_prim(p, &left,FALSE);
         if(left.ptr_depth == 0){
             trigger_parser_err(p, "De-ptr must be operated on a pointer!");
         }
-        if(!left_val_only){
-            inf->ptr_depth=left.ptr_depth-1;
-            // rax <- [rax]
-            emit_mov_addr2r(p->m, REG_AX, REG_AX);
-            inf->base_addr = 0;
+        *inf = left;
+        if(lexer_skip(p->l, '=')){
+            lexer_next(p->l);lexer_next(p->l);
+
+            if(left.isglo)
+                emit_mov_r2r(p->m, REG_BX, REG_AX);
+            assignment(p, &left);
+            return;
         }
+        //De-ptr
+        emit_mov_addr2r(p->m, REG_AX, REG_AX);
         return;
         
     }else{
@@ -467,11 +557,11 @@ int arg_decl(parser_t *p,int offset,hashmap_t *dst,char *btin){
 int proto_decl(parser_t *p,int offset,hashmap_t *dst){
     int ptr_depth;
     char builtin;
-    proto_sub_t *prot = subproto_new(offset);    
-    int sz = def_stmt(p, &ptr_depth, &builtin, &prot->type,NULL);
+    proto_t *type;
+    int sz = def_stmt(p, &ptr_depth, &builtin, &type,NULL);
     token_t name = p->l->tk_now;
-    prot->ptr_depth = ptr_depth;
-    prot->builtin = builtin;
+    proto_sub_t *prot = subproto_new(offset,builtin,type,ptr_depth);    
+
     hashmap_put(dst, &p->l->code[name.start], name.length, prot);
     return sz;
 }
@@ -580,51 +670,6 @@ var_t* var_def(parser_t*p){
 
 }
 
-void assignment(parser_t *p,var_t *v){
-    if(v->type >= TP_INTEGER && v->type < TP_CUSTOM){
-        trigger_parser_err(p, "Cannot assign to a constant");
-    }
-    var_t left;
-    if(v->isglo)
-        emit_pushrax(p->m);
-    expr_root(p, &left);
-    if(v->isglo)
-        emit(p->m, 0x5b); // pop rbx
-    if(left.type != TP_CUSTOM){
-        // basic types --> already loaded into rax
-        
-        if(!v->isglo){
-            emit_reg2rbp(p->m, v->ptr_depth?TP_U64:v->type, v->base_addr);
-            //TODO: local variable
-            return;
-        }
-        if(v->ptr_depth){
-            emit(p->m,0x48);emit(p->m, 0x89);emit(p->m, 0x03);
-            return;
-        }
-        if(v->type == TP_CUSTOM){
-            trigger_parser_err(p, "Unmatched type while assigning");
-        }
-        switch (v->type) {
-            case TP_I8: case TP_U8:
-                emit(p->m, 0x88);emit(p->m, 0x03);
-                break;
-            case TP_I16: case TP_U16:
-                emit(p->m, 0x66);emit(p->m, 0x89);emit(p->m, 0x03);
-                break;
-            case TP_I32: case TP_U32:
-                emit(p->m, 0x89);emit(p->m, 0x03);
-                break;
-            default:
-                emit(p->m,0x48);emit(p->m, 0x89);emit(p->m, 0x03);
-                break;
-        
-        }
-    }else {
-        trigger_parser_err(p, "struct assign not support!");
-    }
-}
-
 int expression(parser_t*p){
     Tk tt = p->l->tk_now.type;
     if(tt == TK_IDENT){
@@ -635,32 +680,24 @@ int expression(parser_t*p){
         }
         // just assignment?
         var_t inf;
-        expr_prim(p, &inf,1);
-        if(lexer_skip(p->l, '=')){
-            if(inf.base_addr == 0){
-                trigger_parser_err(p, "Fail to resolve left-value");
-            }
-            lexer_next(p->l);lexer_next(p->l);
-            assignment(p, &inf);
-        } else {
-            // print the variable
-            //
-            if(inf.type!=TP_CUSTOM && inf.isglo){
-                emit_mov_addr2r(p->m, REG_AX, REG_AX);
-            }
-            u64 addr = debuglibs[DBG_PRINT_INT];
-            // load params
-            //printf("will debug:%llx\n",inf.base_addr);
-            if(!inf.isglo){
-                emit_rbpload(p->m, inf.type, inf.base_addr);
-            }
-            emit_mov_r2r(p->m, REG_DI, REG_AX); // mov rcx,rax
-            emit_load(p->m, REG_SI, inf.ptr_depth?TP_U64-TP_I8: inf.type - TP_I8); 
-            //
-            //int s = emit_call_enter(p->m, 2); // 2params
-            emit_call(p->m, addr);
-            //emit_call_leave(p->m, s);
+        expr_prim(p, &inf,FALSE);        
+        // print the variable
+        //
+        // if(inf.type!=TP_CUSTOM && inf.isglo){
+        //     emit_mov_addr2r(p->m, REG_AX, REG_AX);
+        // }
+        u64 addr = debuglibs[DBG_PRINT_INT];
+        // load params
+        //printf("will debug:%llx\n",inf.base_addr);
+        if(!inf.isglo){
+            emit_rbpload(p->m, inf.type, inf.base_addr);
         }
+        emit_mov_r2r(p->m, REG_DI, REG_AX); // mov rcx,rax
+        emit_load(p->m, REG_SI, inf.ptr_depth?TP_U64-TP_I8: inf.type - TP_I8); 
+        //
+        //int s = emit_call_enter(p->m, 2); // 2params
+        emit_call(p->m, addr);
+        //emit_call_leave(p->m, s);
         
     }else if(tt == TK_INT || tt == TK_FLOAT){
         //const expression?
@@ -671,9 +708,10 @@ int expression(parser_t*p){
         if(nv->type == TP_FUNC)
             return 1;
         if(lexer_skip(p->l, '=')){
-            nv->type == TP_CUSTOM?var_load_struc(p, nv->base_addr):var_load(p, nv, 1);
+
             //assignment
             lexer_next(p->l);lexer_next(p->l);
+            prep_assign(p, nv);
             assignment(p, nv);
         }
     }
@@ -759,6 +797,8 @@ void parser_start(module_t *m,Lexer_t* lxr){
     p.l = lxr;
     p.m = m;
     p.isglo = TRUE;
+        qc_lib_console(m);
+
     emit(m, 0x55);
     emit_mov_r2r(m, REG_BP, REG_SP);
     while (!lexer_skip(lxr, TK_EOF)) {
@@ -768,5 +808,8 @@ void parser_start(module_t *m,Lexer_t* lxr){
     emit(m, 0xc9); // leave
     emit(m, 0xc3); // ret
     int (*test)() = m->jit_compiled;
+    FILE *f = fopen("core.bin", "wc");
+    fwrite(m->jit_compiled, m->jit_cur, 1, f);
+    fclose(f);
     printf("JIT(%d bytes) CALLED:%d\n",m->jit_cur, test());
 }

@@ -57,6 +57,13 @@ typedef struct{
 }module_t;
 
 typedef struct{
+    u32 len;
+    char *ptr;
+}vm_string_t;
+
+#define CSTR2VMSTR(s) (vm_string_t){.len=strlen(s),.ptr=s} 
+
+typedef struct{
     u64 ptr;
     hashmap_t arg_table;
     proto_sub_t ret_type;
@@ -70,6 +77,10 @@ void module_init(module_t *v, char *name);
 
 void module_pack_jit(module_t*v);
 
+void module_add_prototype(module_t *m,proto_t *t,vm_string_t name);
+
+void module_add_var(module_t* m,var_t *v,vm_string_t name);
+
 var_t* var_new_base(char type,u64 v,int ptr,bool isglo,proto_t *prot);
 
 proto_t* proto_new(int base_len);
@@ -78,7 +89,7 @@ function_frame_t *function_new(u64 ptr);
 
 void proto_debug(proto_t *type);
 
-proto_sub_t* subproto_new(char offset);
+proto_sub_t* subproto_new(char offset,char builtin,proto_t*prot,int ptrdepth);
 
 void emit(module_t *v,char op);
 
@@ -118,7 +129,7 @@ void emit_poprax(module_t*v);
 
 void emit_param_4(module_t *v,u64 a,u64 b,u64 c,u64 d);
 
-void emit_reg2rbp(module_t*v,char src,u32 offset);
+void emit_reg2rbp(module_t*v,char src,i32 offset);
 
 void emit_rbpload(module_t *v,char w,u32 offset);
 

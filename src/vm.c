@@ -41,6 +41,15 @@ void module_init(module_t *v, char *name){
     module_pack_jit(v);
 }
 
+void module_add_prototype(module_t *m,proto_t *t,vm_string_t name){
+    hashmap_put(&m->prototypes, name.ptr, name.len, t);
+}
+
+void module_add_var(module_t* m,var_t *v,vm_string_t name){
+    hashmap_put(&m->sym_table, name.ptr, name.len, v);
+
+}
+
 function_frame_t *function_new(u64 ptr){
     function_frame_t* r= malloc(sizeof(function_frame_t));
     if(!r)
@@ -111,10 +120,12 @@ void proto_debug(proto_t *type){
     printf("Prototype End(%d bytes)\n",type->len);
 }
 
-proto_sub_t* subproto_new(char offset){
+proto_sub_t* subproto_new(char offset,char builtin,proto_t*prot,int ptrdepth){
     proto_sub_t* t = malloc(sizeof(proto_sub_t));
     t->offset = offset;
-    t->type = NULL;
+    t->type = prot;
+    t->builtin=builtin;
+    t->ptr_depth=ptrdepth;
     return t;
 }
 
@@ -206,7 +217,7 @@ void emit_param_4(module_t *v,u64 a,u64 b,u64 c,u64 d){
     emit_load(v, REG_R8, c);emit_load(v, REG_R9, d);
 }
 
-void emit_reg2rbp(module_t*v,char src,u32 offset){
+void emit_reg2rbp(module_t*v,char src,i32 offset){
     offset = -offset;
     switch (src) {
         case TP_U8:case TP_I8:
@@ -222,7 +233,7 @@ void emit_reg2rbp(module_t*v,char src,u32 offset){
             emit(v, 0x48);emit(v, 0x89);
             break;
     }
-    if(offset<128){
+    if(offset<128 && offset>=-127){
         emit(v, 0x45);
         emit(v,(u8)offset);
     }else {
@@ -234,7 +245,9 @@ void emit_reg2rbp(module_t*v,char src,u32 offset){
 
 void emit_rbpload(module_t *v,char w,u32 offset){
     offset = -offset;
-    emit_load(v, REG_AX, 0);
+    if(w < TP_I64){
+        emit(v, 0x48);emit(v, 0x31);emit(v, 0xc0); // xor rax,rax
+    }
      switch (w) {
         case TP_U8:case TP_I8:
             emit(v, 0x8a);

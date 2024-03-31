@@ -27,7 +27,6 @@ enum op_priority
     
 };
 
-
 void parser_start(module_t *m,Lexer_t* lxr);
 
 #endif

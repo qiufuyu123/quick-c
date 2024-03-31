@@ -3,3 +3,4 @@ build/
 *.asm
 *.o
 quick-c
+*.bin

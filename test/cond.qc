@@ -12,3 +12,5 @@ u8 test(u8 a){
 }
 u8 r = test(2);
 r;
+
+// expect : 99

@@ -17,7 +17,6 @@ a2;
 u64 c = 0x123456;
 c;
 addr = &c;
-addr;
 u64 **addr2 = &addr;
 addr2;
 u64 r = **addr2;
