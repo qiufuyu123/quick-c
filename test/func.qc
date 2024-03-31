@@ -1,0 +1,30 @@
+u8 f(u8 e,u8 f,u8 g){
+    e;
+    f;
+    g;
+
+    u8 a = 123;
+    u16 b = 32762;
+    u32 c = 123123123;
+    u64 d = 0x8888ffff8888ffff;
+    a;
+    return 123;
+}
+
+u16 f2(){
+    u8 r = f();
+    r;
+    return 2024;
+}
+u16 glo_val = 666;
+u16 *test(){
+    return &glo_val;
+}
+u16 nil_call = f2(2,3,4)+f();
+nil_call;
+u16 get = *test();
+get;
+
+
+
+//expect 246

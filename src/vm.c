@@ -1,32 +1,32 @@
 #include "vm.h"
+#include "define.h"
 #include "hashmap.h"
 #include "vec.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/types.h>
 void panic_oom(const char *msg){
     printf("VM: %s: OOM\n",msg);
     exit(1);
 }
 
 void module_pack_jit(module_t*v){
-    v->jit_compiled_len = v->jit_codes.size;
-    u64 len = BYTE_ALIGN(v->jit_codes.size, 4096);
+    v->jit_compiled_len = 4096;
+    u64 len = 4096;
     char *memory = mmap(NULL,             // address
                       len,             // size
                       PROT_READ | PROT_WRITE | PROT_EXEC,
                       MAP_PRIVATE | MAP_ANONYMOUS,
                       -1,               // fd (not used here)
                       0);               // offset (not used here)
-    memcpy(memory, v->jit_codes.data, v->jit_codes.size);
     v->jit_compiled = memory;
-    vec_release(&v->jit_codes);
+    v->jit_cur=0;
 }
 
 void module_init(module_t *v, char *name){
     v->module_name = name;
-    vec_init(&v->jit_codes, 1, 16);
     vec_init(&v->heap, 1, 64);
     if(hashmap_create(2, &v->sym_table)){
         panic_oom("Fail to alloc sym_table");
@@ -38,7 +38,17 @@ void module_init(module_t *v, char *name){
         panic_oom("Fail to alloc prototypes");
     }
     v->stack = 0;
-    v->jit_compiled = NULL;
+    module_pack_jit(v);
+}
+
+function_frame_t *function_new(u64 ptr){
+    function_frame_t* r= malloc(sizeof(function_frame_t));
+    if(!r)
+        panic_oom("Fail to alloc function frame");
+    r->ptr = ptr;
+    hashmap_create(1, &r->arg_table);
+    r->size=0;
+    return r;
 }
 
 var_t* var_new_base(char type,u64 v,int ptr,bool isglo,proto_t* prot){
@@ -59,6 +69,24 @@ proto_t* proto_new(int base_len){
     t->len = base_len;
     hashmap_create(1, &t->subs);
     return t;
+}
+
+int _iter_sym(void* const context, struct hashmap_element_s* const e) {
+  char buf[100]={0};
+  memcpy(buf, e->key, e->key_len);
+  void* val = e->data;
+  hashmap_t *ctx = (hashmap_t*)context;
+  hashmap_put(ctx, buf, e->key_len, val);
+  return 0;
+}
+
+void module_add_stack_sym(module_t *v,hashmap_t *next){
+    hashmap_iterate_pairs(next, _iter_sym, &v->local_sym_table);
+}
+
+void module_clean_stack_sym(module_t *v){
+    hashmap_destroy(&v->local_sym_table);
+    hashmap_create(2, &v->local_sym_table);
 }
 
 int _debug_prot(void* const context, struct hashmap_element_s* const e) {
@@ -91,11 +119,17 @@ proto_sub_t* subproto_new(char offset){
 }
 
 void emit(module_t *v,char op){
-    vec_push(&v->jit_codes, &op);
+    *(v->jit_compiled+v->jit_cur)=op;
+    v->jit_cur++;
+}
+
+u64* jit_top(module_t *v){
+    return (u64*)(v->jit_compiled+v->jit_cur);
 }
 
 void emit_data(module_t*v,char w,void* data){
-    vec_push_n(&v->jit_codes, data, w);
+    memcpy(v->jit_compiled+v->jit_cur, data, w);
+    v->jit_cur+=w;
 }
 
 void emit_load(module_t*v,char r,u64 m){
@@ -159,9 +193,110 @@ void emit_poprax(module_t*v){
     emit(v,0x58);
 }
 
+void emit_saversp(module_t *v){
+    emit(v, 0x54);
+}
+
+void emit_restorersp(module_t *v){
+    emit(v,0x5c);
+}
+
 void emit_param_4(module_t *v,u64 a,u64 b,u64 c,u64 d){
     emit_load(v, REG_CX, a);emit_load(v, REG_DX, b);
     emit_load(v, REG_R8, c);emit_load(v, REG_R9, d);
+}
+
+void emit_reg2rbp(module_t*v,char src,u32 offset){
+    offset = -offset;
+    switch (src) {
+        case TP_U8:case TP_I8:
+            emit(v, 0x88);
+            break;
+        case TP_U16:case TP_I16:
+            emit(v, 0x66);emit(v, 0x89);
+            break;
+        case TP_U32:case TP_I32:
+            emit(v, 0x89);
+            break;
+        case TP_U64:case TP_I64:
+            emit(v, 0x48);emit(v, 0x89);
+            break;
+    }
+    if(offset<128){
+        emit(v, 0x45);
+        emit(v,(u8)offset);
+    }else {
+        emit(v,0x85);
+        emit_data(v, 4, &offset);
+    }
+    
+}
+
+void emit_rbpload(module_t *v,char w,u32 offset){
+    offset = -offset;
+     switch (w) {
+        case TP_U8:case TP_I8:
+            emit(v, 0x8a);
+            break;
+        case TP_U16:case TP_I16:
+            emit(v, 0x66);emit(v, 0x8b);
+            break;
+        case TP_U32:case TP_I32:
+            emit(v, 0x8b);
+            break;
+        case TP_U64:case TP_I64:
+            emit(v, 0x48);emit(v, 0x8b);
+            break;
+    }
+    if(offset<128){
+        emit(v, 0x45);
+        emit(v,(u8)offset);
+    }else {
+        emit(v,0x85);
+        emit_data(v, 4, &offset);
+    }
+    
+}
+
+void emit_rsp2bx(module_t*v,u32 offset){
+    emit(v, 0x48);emit(v, 0x8b);
+    if(offset<128){
+        emit(v, 0x5c);
+        emit(v, 0x24);
+        emit(v,(u8)offset);
+    }else {
+        emit(v,0x9c);
+        emit(v, 0x24);
+        emit_data(v, 4, &offset);
+    }
+}
+
+u64* emit_offsetrsp(module_t*v,u32 offset,bool sub){
+    emit(v, 0x48);
+    if(offset<128){
+        emit(v, 0x83);
+    }else {
+        emit(v, 0x81);
+    }
+    sub?emit(v, 0xec):emit(v,0xc4);
+    u64* r = jit_top(v);
+    if(offset<128){
+        emit(v,offset);
+    }else {
+        emit_data(v, 4, &offset);
+    }
+    return r;
+}
+
+u64* emit_jmp_flg(module_t*v){
+    emit_load(v, REG_AX, 0);
+    u64 ret = (u64)jit_top(v)-8;
+    emit(v, 0xff);emit(v,0xe0);
+    return (u64*)ret;
+}
+
+u64 *jit_restore_off(module_t *v,int off){
+    return (u64*)((u64)v->jit_compiled+off);
 }
 
 void emit_call(module_t *v,u64 addr){

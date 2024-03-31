@@ -136,12 +136,12 @@ static token_t lex_ident(Lexer_t *lxr) {
 	static char *keywords[] = {
 		 "if", "else", "elseif", "loop", "while", "for", "fn", "struct","true",
 		"false", "nil", "i8","u8","i16","u16","i32","u32",
-        "i64","u64",NULL,
+        "i64","u64","return",NULL,
 	};
 	static Tk keyword_tks[] = {
 		 TK_IF, TK_ELSE, TK_ELSEIF, TK_LOOP, TK_WHILE, TK_FOR, TK_FN,TK_STRUCT,
 		TK_TRUE, TK_FALSE, TK_NIL,TK_I8,TK_U8,TK_I16,TK_U16,TK_I32,TK_U32,TK_I64
-        ,TK_U64
+        ,TK_U64,TK_RETURN
 	};
 
 	// Compare the identifier against reserved language keywords
@@ -242,9 +242,11 @@ token_t lexer_expect(Lexer_t *lex,Tk type){
 }
 
 bool lexer_skip(Lexer_t *lex,Tk type){
+    token_t tk_old = lex->tk_now;
     int old = lex->cursor;
     bool r = lexer_next(lex).type == type;
     lex->cursor = old;
+    lex->tk_now = tk_old;
     return r;
 }
 
@@ -254,7 +256,7 @@ void lexer_debug(char *content){
     static char* translate[] = {"+=","-=","*=","/=","%=","==",
     "!=","<=",">=","&&","||","if","else","elseif","loop","while",
     "for","fn","struct","ID","FLOAT","INT","i8","u8","i16","u16","i32","u32",
-        "i64","u64","FALSE","TRUE","NIL"};
+        "i64","u64","FALSE","TRUE","RET","NIL"};
     lexer_init(&lex, "debug/test.q.c", content);
     while (1) {
         tk = lexer_next(&lex);

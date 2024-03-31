@@ -46,6 +46,35 @@ void load_b2a(parser_t*p, char type){
     }
 }
 
+void expr_root(parser_t*p,var_t*inf);
+
+void prepare_calling(parser_t*p){
+    var_t inf;
+    int no = 1;
+    while (!lexer_skip(p->l, ')')) {
+        lexer_next(p->l);
+        expr_root(p, &inf);
+        if(inf.type == TP_CUSTOM && inf.ptr_depth == 0){
+            trigger_parser_err(p, "Cannot pass a structure as argument!");
+        }
+        if(no >= 7)
+            trigger_parser_err(p, "Too many arguments!");
+        emit_mov_r2r(p->m, no == 1?REG_DI:
+                                no ==2?REG_SI:
+                                no ==3?REG_DX:
+                                no ==4?REG_CX:
+                                no ==5?REG_R8:
+                                REG_R9
+                                , REG_AX);
+        no++;
+        if(lexer_skip(p->l, ')')){
+            break;
+        }
+        lexer_expect(p->l, ',');
+    }
+    lexer_next(p->l);
+}
+
 void var_load(parser_t* p,var_t* v,bool left_val){
     if(v->isglo){
         if(left_val){
@@ -57,9 +86,16 @@ void var_load(parser_t* p,var_t* v,bool left_val){
             emit(p->m, 0x48); emit(p->m, 0x8b);emit(p->m, 0x03);
             return;
         }
-        load_b2a(p,v->type);
         
+        
+    }else {
+        if(left_val)
+            return;
+        emit_rbpload(p->m, v->type, v->base_addr);
+        return;
+
     }
+    load_b2a(p,v->type);
 }
 
 void var_load_struc(parser_t* p,u64 base_addr){
@@ -77,13 +113,13 @@ int struct_offset(parser_t*p ,proto_t *type,token_t name,proto_sub_t *sub_){
     }
     return -1;
 }
-
-void expr_root(parser_t*p,var_t*inf);
-
 int expr_ident(parser_t* p, var_t *inf,bool left_val){
-    var_t *t = hashmap_get(&p->m->sym_table, &p->l->code[p->l->tk_now.start], p->l->tk_now.length);
+    var_t *t = VAR_EXIST_GLO;
     if(t == NULL){
-        trigger_parser_err(p, "Cannot find symbol!");
+        t = VAR_EXIST_LOC;
+    }
+    if(t == NULL){
+        trigger_parser_err(p, "Cannot find symbol");
     }
     var_t parent = *t;
     *inf = parent;
@@ -115,6 +151,10 @@ int expr_ident(parser_t* p, var_t *inf,bool left_val){
             if(parent.ptr_depth){
                 emit_load(p->m, REG_CX, offset);
                 emit_addr2r(p->m, REG_BX, REG_CX);
+                if(!p->isglo){
+                    emit_addr2r(p->m, REG_BX, REG_SP);
+                    parent.isglo = TRUE;
+                }
                 emit_mov_addr2r(p->m, REG_BX, REG_BX);
                 offset = 0;
                 
@@ -134,6 +174,9 @@ int expr_ident(parser_t* p, var_t *inf,bool left_val){
     if(offset){
         emit_load(p->m, REG_CX, offset);
         emit_addr2r(p->m, REG_BX, REG_CX);
+        if(!parent.isglo){
+            emit_addr2r(p->m, REG_BX, REG_SP);
+        }
     }
     if(inf->type != TP_CUSTOM && !left_val){
         load_b2a(p, inf->type);
@@ -197,6 +240,27 @@ void expr_prim(parser_t* p,var_t *inf,bool left_val_only){
         }
         
     }else if(t == TK_IDENT){
+        if(lexer_skip(p->l, '(')){
+                //function call
+            var_t *v = hashmap_get(&p->m->sym_table, &p->l->code[p->l->tk_now.start], p->l->tk_now.length);
+            if(v==NULL)
+                trigger_parser_err(p, "function not exists!");
+            if(v->type == TP_FUNC){
+                lexer_next(p->l);
+                function_frame_t *func = (function_frame_t*)v->base_addr;
+                // set up arguments
+                prepare_calling(p);
+                //                
+                emit_call(p->m,func->ptr);
+                inf->ptr_depth = func->ret_type.ptr_depth;
+                inf->type = func->ret_type.builtin;
+                inf->prot = func->ret_type.type;
+            }else {
+                trigger_parser_err(p, "Cannot call!");
+            }
+            
+            return;
+        }
         expr_ident(p, inf,left_val_only);
         return;
     }else if(t == '('){
@@ -377,21 +441,122 @@ int def_stmt(parser_t *p,int *ptr_depth,char *builtin,proto_t** proto,token_t *n
     return *ptr_depth?8:(**proto).len;
 }
 
+void stmt(parser_t *p);
+
+int arg_decl(parser_t *p,int offset,hashmap_t *dst){
+    int ptr_depth;
+    char builtin;
+    proto_t *type;
+    
+    int sz = def_stmt(p, &ptr_depth, &builtin, &type,NULL);
+    var_t *r = var_new_base(builtin, offset+sz, ptr_depth, 0, type);
+    token_t name = p->l->tk_now;
+    hashmap_put(dst, &p->l->code[name.start], name.length, r);
+    hashmap_put(&p->m->local_sym_table, &p->l->code[name.start], name.length, r);
+    return sz;
+}
+
+int proto_decl(parser_t *p,int offset,hashmap_t *dst){
+    int ptr_depth;
+    char builtin;
+    proto_sub_t *prot = subproto_new(offset);    
+    int sz = def_stmt(p, &ptr_depth, &builtin, &prot->type,NULL);
+    token_t name = p->l->tk_now;
+    prot->ptr_depth = ptr_depth;
+    prot->builtin = builtin;
+    hashmap_put(dst, &p->l->code[name.start], name.length, prot);
+    return sz;
+}
+
+void restore_arg(parser_t *p,int no,int offset,char w){
+    if(no > 6){
+        trigger_parser_err(p, "Too many args!");
+    }
+    emit_mov_r2r(p->m,REG_AX, no == 1?REG_DI:
+                                no ==2?REG_SI:
+                                no ==3?REG_DX:
+                                no ==4?REG_CX:
+                                no ==5?REG_R8:
+                                REG_R9
+                                );
+    emit_reg2rbp(p->m, w, offset);
+
+}
+
 var_t* var_def(parser_t*p){
     int ptr_depth;
     char builtin;
     proto_t *prot;
+    function_frame_t *func = NULL;
     int sz = def_stmt(p, &ptr_depth, &builtin, &prot,NULL);
     if(var_exist(p)){
         trigger_parser_err(p, "variable is already existed!");
     }
-    var_t* nv = var_new_base(builtin, 0, ptr_depth,TRUE,prot);
+    token_t name = p->l->tk_now;
+    if(lexer_skip(p->l, '(')){
+        if(!p->isglo){
+            trigger_parser_err(p, "Cannot declare a function inside a function");
+        }
+        // function declare:
+        lexer_next(p->l);
+        u64* jmp = emit_jmp_flg(p->m);
+        func = function_new((u64)jit_top(p->m));
+        func->ret_type.builtin = builtin;
+        func->ret_type.type = prot;
+        func->ret_type.ptr_depth = ptr_depth;
+        int offset= 0;
+        
+        p->isglo = FALSE;
+        emit(p->m, 0x55);//push rbp
+        emit_mov_r2r(p->m, REG_BP, REG_SP); // mov rbp,rsp
+        u64* preserv = emit_offsetrsp(p->m, 0,1);
+        int no  = 1;
+        while (!lexer_skip(p->l, ')')) {
+            lexer_next(p->l);
+            sz = arg_decl(p, offset, &func->arg_table);
+            offset+=sz;
+            restore_arg(p, no, offset, sz);
+            no++;
+            if(lexer_skip(p->l, ')')){
+                break;
+            }
+            lexer_expect(p->l, ',');
+        }
+        lexer_next(p->l);
+        if(lexer_next(p->l).type != '{'){
+            trigger_parser_err(p,"Expect function body");
+        }
+        
+        p->m->stack=offset;
+        while (!lexer_skip(p->l, '}')) {
+            lexer_next(p->l);
+            stmt(p);
+        }
+        module_clean_stack_sym(p->m);
+        lexer_next(p->l);
+        p->m->stack = BYTE_ALIGN(p->m->stack, 16);
+        printf("Total Allocate %d bytes on stack\n",p->m->stack);
+        p->isglo = TRUE;
+        if(p->m->stack < 128){
+            *(u8*)(preserv)=p->m->stack;
+        }else {
+            *(u32*)(preserv)=p->m->stack;
+        }
+        
+        *jmp = (u64)jit_top(p->m);
+    }
+    var_t* nv = var_new_base(func?TP_FUNC:builtin, 0, func?1:ptr_depth,p->isglo,prot);
     if(p->isglo){
         printf("variable alloc %d bytes on heap!\n",sz);
-        nv->base_addr = (u64)vec_reserv(&p->m->heap,sz);
-        hashmap_put(&p->m->sym_table, &p->l->code[p->l->tk_now.start], p->l->tk_now.length, nv);
+        nv->base_addr = func?(u64)func:(u64)vec_reserv(&p->m->heap,sz);
+        hashmap_put(&p->m->sym_table, &p->l->code[name.start], name.length, nv);
     }else {
-        // TODO: Stack allocation
+        printf("variable alloc %d bytes on stack!\n",sz);
+        // notice here:
+        p->m->stack+=sz;
+        nv->base_addr = p->m->stack;
+        
+        hashmap_put(&p->m->local_sym_table, &p->l->code[name.start], name.length, nv);
     }
     return nv;
 
@@ -402,15 +567,18 @@ void assignment(parser_t *p,var_t *v){
         trigger_parser_err(p, "Cannot assign to a constant");
     }
     var_t left;
-    emit_pushrax(p->m);
+    if(v->isglo)
+        emit_pushrax(p->m);
     expr_root(p, &left);
-    emit(p->m, 0x5b); // pop rbx
+    if(v->isglo)
+        emit(p->m, 0x5b); // pop rbx
     if(left.type != TP_CUSTOM){
         // basic types --> already loaded into rax
         
         if(!v->isglo){
+            emit_reg2rbp(p->m, v->ptr_depth?TP_U64:v->type, v->base_addr);
             //TODO: local variable
-            trigger_parser_err(p, "Stack variable not supported!");
+            return;
         }
         if(v->ptr_depth){
             emit(p->m,0x48);emit(p->m, 0x89);emit(p->m, 0x03);
@@ -439,42 +607,41 @@ void assignment(parser_t *p,var_t *v){
     }
 }
 
-void expression(parser_t*p){
+int expression(parser_t*p){
     Tk tt = p->l->tk_now.type;
     if(tt == TK_IDENT){
         token_t tk = p->l->tk_now;
         if(hashmap_get(&p->m->prototypes,&p->l->code[tk.start] ,tk.length)){
-            var_def(p);
-            return;
+            var_t* v = var_def(p);
+            return v->type==TP_FUNC;
         }
         // just assignment?
         var_t inf;
-        if(VAR_EXIST_GLO){
-            expr_prim(p, &inf,1);
-            if(lexer_skip(p->l, '=')){
-                printf("base addr is: %d",inf.base_addr);
-                if(inf.base_addr == 0){
-                    trigger_parser_err(p, "Fail to resolve left-value");
-                }
-                lexer_next(p->l);lexer_next(p->l);
-                assignment(p, &inf);
-            }else {
-                // print the variable
-                //
-                if(inf.type!=TP_CUSTOM){
-                    emit_mov_addr2r(p->m, REG_AX, REG_AX);
-                }
-                u64 addr = debuglibs[DBG_PRINT_INT];
-                // load params
-                //printf("will debug:%llx\n",inf.base_addr);
-                emit_mov_r2r(p->m, REG_DI, REG_AX); // mov rcx,rax
-                emit_load(p->m, REG_SI, inf.ptr_depth?TP_U64-TP_I8: inf.type - TP_I8); 
-                //
-                //int s = emit_call_enter(p->m, 2); // 2params
-                emit_call(p->m, addr);
-                //emit_call_leave(p->m, s);
+        expr_prim(p, &inf,1);
+        if(lexer_skip(p->l, '=')){
+            if(inf.base_addr == 0){
+                trigger_parser_err(p, "Fail to resolve left-value");
             }
-
+            lexer_next(p->l);lexer_next(p->l);
+            assignment(p, &inf);
+        } else {
+            // print the variable
+            //
+            if(inf.type!=TP_CUSTOM && inf.isglo){
+                emit_mov_addr2r(p->m, REG_AX, REG_AX);
+            }
+            u64 addr = debuglibs[DBG_PRINT_INT];
+            // load params
+            //printf("will debug:%llx\n",inf.base_addr);
+            if(!inf.isglo){
+                emit_rbpload(p->m, inf.type, inf.base_addr);
+            }
+            emit_mov_r2r(p->m, REG_DI, REG_AX); // mov rcx,rax
+            emit_load(p->m, REG_SI, inf.ptr_depth?TP_U64-TP_I8: inf.type - TP_I8); 
+            //
+            //int s = emit_call_enter(p->m, 2); // 2params
+            emit_call(p->m, addr);
+            //emit_call_leave(p->m, s);
         }
         
     }else if(tt == TK_INT || tt == TK_FLOAT){
@@ -483,6 +650,8 @@ void expression(parser_t*p){
         expr_root(p, &inf);
     }else {
         var_t *nv= var_def(p);
+        if(nv->type == TP_FUNC)
+            return 1;
         if(lexer_skip(p->l, '=')){
             nv->type == TP_CUSTOM?var_load_struc(p, nv->base_addr):var_load(p, nv, 1);
             //assignment
@@ -490,6 +659,7 @@ void expression(parser_t*p){
             assignment(p, nv);
         }
     }
+    return 0;
     
 }
 
@@ -505,23 +675,29 @@ void stmt(parser_t *p){
         int offset=0;
         while (!lexer_skip(p->l, '}')) {
             lexer_next(p->l);
-            int ptr_depth;
-            char builtin;
-            proto_sub_t *prot = subproto_new(offset);
-            int sz = def_stmt(p, &ptr_depth, &builtin, &prot->type,NULL);
-            token_t name = p->l->tk_now;
-            prot->ptr_depth = ptr_depth;
-            prot->builtin = builtin;
-            hashmap_put(&new_type->subs, &p->l->code[name.start], name.length, prot);
-            offset+=sz;
+            offset+=proto_decl(p, offset, &new_type->subs);
             lexer_expect(p->l, ';');
         }
         lexer_next(p->l);
         new_type->len = offset;
         hashmap_put(&p->m->prototypes, &p->l->code[tk.start], tk.length, new_type);
         proto_debug(new_type);
-    }else {
-        expression(p);
+    }else if(tt == TK_RETURN){
+        if(p->isglo){
+            trigger_parser_err(p, "Return must be used inside a function");
+        }
+        var_t inf;
+        lexer_next(p->l);
+        expr_root(p,&inf);
+        if(inf.ptr_depth == 0 && inf.type == TP_CUSTOM){
+            trigger_parser_err(p, "Return a struct is not allowed!");
+        }
+        emit(p->m, 0xc9); //leave
+        emit(p->m, 0xc3);
+    }
+    else {
+        if(expression(p))
+            return;
     }
     lexer_expect(p->l, ';');
 }
@@ -531,14 +707,14 @@ void parser_start(module_t *m,Lexer_t* lxr){
     p.l = lxr;
     p.m = m;
     p.isglo = TRUE;
-    
+    emit(m, 0x55);
+    emit_mov_r2r(m, REG_BP, REG_SP);
     while (!lexer_skip(lxr, TK_EOF)) {
         lexer_next(lxr);
         stmt(&p);
     }
-    
+    emit(m, 0xc9); // leave
     emit(m, 0xc3); // ret
-    module_pack_jit(m);
     int (*test)() = m->jit_compiled;
     printf("JIT(%d bytes) CALLED:%d\n",m->jit_compiled_len, test());
 }
