@@ -43,20 +43,38 @@ u16 test2(){
     inside.bbb = 127;
     inside.ccc = 11;
     inside.ddd = 33;
+    inside.e = &e;
     inside.bbb;
-    return inside.bbb;
+    inside.ccc;
+    inside.ddd;
+    inside.e;
+    return inside.e;
 }
-console.print(test2(),2);
-//expect:
-// 255
-// 128
-// 123
-// 2333
-// 3222
-// 999
-// 889
-// 127
-// 11
-// 33
-// 127
-// 127
+console.print(test2(),7);
+// [debug lib]: 999
+// [debug lib]: 888
+// [debug lib]: 5625ce05f891
+// [debug lib]: 5625ce05f899
+// [debug lib]: 5625ce05f899
+// [debug lib]: 255
+// [debug lib]: 128
+// [debug lib]: 255
+// [debug lib]: 128
+// [debug lib]: 123
+// [debug lib]: 2333
+// [debug lib]: 3222
+// [debug lib]: 2333
+// [debug lib]: 3222
+// [debug lib]: 999
+// [debug lib]: 889
+// [debug lib]: 889
+// [debug lib]: 127
+// [debug lib]: 11
+// [debug lib]: 33
+// [debug lib]: 5625ce05f899
+// [debug lib]: 127
+// [debug lib]: 11
+// [debug lib]: 33
+// [debug lib]: 5625ce05f899
+// [debug lib]: 5625ce05f899
+// [debug lib]: 0

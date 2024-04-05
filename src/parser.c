@@ -134,9 +134,9 @@ int struct_offset(parser_t*p ,proto_t *type,token_t name,proto_sub_t *sub_){
 void ident_update_off(parser_t *p,var_t*parent, int offset,bool force){
     if(offset){
         if(parent->base_addr == 0|| force){
+            
             emit_load(p->m, REG_CX, offset);
             if(!parent->isglo){
-                emit_addr2r(p->m, REG_BX, REG_SP);
                 parent->isglo = TRUE;
             }
             emit_addr2r(p->m, REG_BX, REG_CX);
@@ -146,7 +146,7 @@ void ident_update_off(parser_t *p,var_t*parent, int offset,bool force){
                 emit_load(p->m, REG_BX, parent->base_addr+offset);
             }
             else {
-                parent->base_addr+=offset;
+                parent->base_addr-=offset;
             }
         }
     }
@@ -186,8 +186,11 @@ void expr_ident(parser_t* p, var_t *inf){
             inf->type = sub.builtin;
             if(parent.ptr_depth){
                 is_fst = 1;
-                if(!parent.isglo)
-                    emit_load(p->m, REG_BX, parent.base_addr);
+                if(!parent.isglo){
+                    emit_mov_r2r(p->m, REG_BX, REG_BP);
+                    emit_load(p->m, REG_CX, parent.base_addr);
+                    emit_minusr2r(p->m, REG_BX, REG_CX);
+                }
                 ident_update_off(p, &parent, offset,1);
                 // emit_load(p->m, REG_CX, offset);
                 // if(!p->isglo){
@@ -348,11 +351,11 @@ void expr_prim(parser_t* p,var_t *inf,bool left_val_only){
             return;
         }
         
-        if(inf->isglo){    
+        if(inf->isglo || inf->base_addr == 0){    
             load_b2a(p, inf->ptr_depth?TP_U64: inf->type);
             return;
-        }
-        emit_rbpload(p->m, inf->type, inf->base_addr);
+        }else
+            emit_rbpload(p->m, inf->ptr_depth?TP_U64:inf->type, inf->base_addr);
         inf->isglo = TRUE;
         return;
     }else if(t == '('){
@@ -370,9 +373,9 @@ void expr_prim(parser_t* p,var_t *inf,bool left_val_only){
         if(left.isglo){
             emit_mov_r2r(p->m, REG_AX, REG_BX);
         }else {
-            emit_mov_r2r(p->m, REG_AX, REG_SP);
+            emit_mov_r2r(p->m, REG_AX, REG_BP);
             emit_load(p->m, REG_BX, left.base_addr);
-            emit_addr2r(p->m, REG_AX, REG_BX);
+            emit_minusr2r(p->m, REG_AX, REG_BX);
         }
         inf->ptr_depth++;
     }else if(t == '*'){
@@ -670,9 +673,9 @@ var_t* var_def(parser_t*p){
     }else {
         printf("variable alloc %d bytes on stack!\n",sz);
         // notice here:
+
         p->m->stack+=sz;
         nv->base_addr = p->m->stack;
-        
         hashmap_put(&p->m->local_sym_table, &p->l->code[name.start], name.length, nv);
     }
     return nv;
@@ -700,7 +703,7 @@ int expression(parser_t*p){
             // load params
             //printf("will debug:%llx\n",inf.base_addr);
             if(!inf.isglo){
-                emit_rbpload(p->m, inf.type, inf.base_addr);
+                emit_rbpload(p->m, inf.ptr_depth?TP_U64:inf.type, inf.base_addr);
             }
             emit_mov_r2r(p->m, REG_DI, REG_AX); // mov rcx,rax
             emit_load(p->m, REG_SI, inf.ptr_depth?TP_U64-TP_I8: inf.type - TP_I8); 
