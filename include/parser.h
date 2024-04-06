@@ -30,6 +30,8 @@ enum op_priority
 #define VAR_EXIST_GLO (hashmap_get(&p->m->sym_table,&p->l->code[p->l->tk_now.start], p->l->tk_now.length))
 #define VAR_EXIST_LOC (hashmap_get(&p->m->local_sym_table,&p->l->code[p->l->tk_now.start], p->l->tk_now.length))
 
+
+int var_get_base_len(char type);
 void expr_root(parser_t*p,var_t*inf);
 void expr_prim(parser_t*p,var_t*inf,bool leftval);
 void prep_assign(parser_t *p,var_t *v);

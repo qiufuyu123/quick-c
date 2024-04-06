@@ -28,6 +28,7 @@ void module_pack_jit(module_t*v){
 void module_init(module_t *v, char *name){
     v->module_name = name;
     vec_init(&v->heap, 1, 64);
+    vec_init(&v->str_table, 1, 64);
     if(hashmap_create(2, &v->sym_table)){
         panic_oom("Fail to alloc sym_table");
     }
@@ -47,7 +48,13 @@ void module_add_prototype(module_t *m,proto_t *t,vm_string_t name){
 
 void module_add_var(module_t* m,var_t *v,vm_string_t name){
     hashmap_put(&m->sym_table, name.ptr, name.len, v);
+}
 
+void* module_add_string(module_t *m,vm_string_t str){
+    vec_push_n(&m->str_table, &str.len, 4);
+    void *ret = (char*)vec_top(&m->str_table)+1;
+    vec_push_n(&m->str_table,str.ptr, str.len);
+    return ret;
 }
 
 function_frame_t *function_new(u64 ptr){
@@ -120,7 +127,7 @@ void proto_debug(proto_t *type){
     printf("Prototype End(%d bytes)\n",type->len);
 }
 
-proto_sub_t* subproto_new(char offset,char builtin,proto_t*prot,int ptrdepth){
+proto_sub_t* subproto_new(int offset,char builtin,proto_t*prot,int ptrdepth){
     proto_sub_t* t = malloc(sizeof(proto_sub_t));
     t->offset = offset;
     t->type = prot;

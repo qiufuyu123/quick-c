@@ -5,13 +5,23 @@
 #include "vm.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 
-function_frame_t _print_ptr[2];
+function_frame_t _print_ptr[3];
 
 u64 qc_lib_print(u64 val,char len){
     void (*f)(u64,u8) = (void*)debuglibs[DBG_PRINT_INT];
     f(val,len);
+    return 0;
+}
+
+u64 qc_lib_print_str(u64 val){
+    char buf[100]={0};
+    u32 len = *(u32*)(val-4);
+    u8 *s = (u8*)val;
+    memcpy(buf, s, len);
+    printf("[debug lib]%s\n",buf);
     return 0;
 }
 
@@ -20,7 +30,7 @@ u64 qc_lib_whoami(){
     return (u64)&_print_ptr[1].ptr;
 }
 
-function_frame_t _print_ptr[2] ={
+function_frame_t _print_ptr[3] ={
     (function_frame_t){
         .ptr = (u64)qc_lib_print,
         .ret_type.builtin=TP_U64,
@@ -28,8 +38,12 @@ function_frame_t _print_ptr[2] ={
         (function_frame_t){
         .ptr = (u64)qc_lib_whoami,
         .ret_type.builtin=TP_U64,
-        .ret_type.ptr_depth=1}
-                        };
+        .ret_type.ptr_depth=1},
+        (function_frame_t){
+            .ptr = (u64)qc_lib_print_str,
+            .ret_type.builtin = TP_U64,
+            .ret_type.ptr_depth=0    
+        }};
 
 void qc_lib_console(module_t *m){
     if(hashmap_get(&m->prototypes, "console", 7))
@@ -37,10 +51,12 @@ void qc_lib_console(module_t *m){
     proto_t* prot = proto_new(0);
     proto_sub_t *sub = subproto_new(0,TP_FUNC,0,1);
     proto_sub_t *sub2 = subproto_new(sizeof(function_frame_t),TP_FUNC,0,1);
+    proto_sub_t *sub3 = subproto_new(sizeof(function_frame_t)*2,TP_FUNC,0,0);
+
     prot->len = sizeof(_print_ptr);
     hashmap_put(&prot->subs, "print", 5, sub);
     hashmap_put(&prot->subs, "whoami", 6, sub2);
-
+    hashmap_put(&prot->subs, "prints", 6,sub3);
     module_add_prototype(m, prot, CSTR2VMSTR("_console"));
     var_t *v = var_new_base(TP_CUSTOM, (u64)&_print_ptr, 0, 1, prot);
     module_add_var(m, v, CSTR2VMSTR("console"));

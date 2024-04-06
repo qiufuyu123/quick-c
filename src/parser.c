@@ -3,6 +3,7 @@
 #include "hashmap.h"
 #include "lex.h"
 #include "lib/console.h"
+#include "lib/array.h"
 #include "vec.h"
 #include "vm.h"
 #include "debuglib.h"
@@ -338,8 +339,8 @@ void parser_start(module_t *m,Lexer_t* lxr){
     p.l = lxr;
     p.m = m;
     p.isglo = TRUE;
-        qc_lib_console(m);
-
+    qc_lib_console(m);
+    qc_lib_array(m);
     emit(m, 0x55);
     emit_mov_r2r(m, REG_BP, REG_SP);
     while (!lexer_skip(lxr, TK_EOF)) {

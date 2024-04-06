@@ -1,4 +1,7 @@
+#include "define.h"
+#include "lex.h"
 #include "parser.h"
+#include "vm.h"
 
 void load_b2a(parser_t*p, char type){
     if(type < TP_I64){
@@ -134,6 +137,26 @@ void assignment(parser_t *p,var_t *v){
     }
 }
 
+void array_visit(parser_t*p,var_t *inf,bool leftval){
+    if(!inf->ptr_depth){
+        trigger_parser_err(p, "'[' must be applied on a pointer!");
+    }
+    lexer_expect(p->l,'[');
+    emit_pushrax(p->m);
+    var_t left;
+    lexer_next(p->l);
+    expr_root(p, &left);
+    lexer_expect(p->l, ']');
+    emit_load(p->m, REG_BX, inf->type==TP_CUSTOM?inf->prot->len:var_get_base_len(inf->type));
+    emit_mulrbx(p->m);
+    emit_mov_r2r(p->m, REG_BX, REG_AX);
+    emit_poprax(p->m);
+    emit_addr2r(p->m, REG_BX, REG_AX);
+    inf->ptr_depth--;
+    if(!leftval)
+        load_b2a(p, inf->ptr_depth?TP_U64:inf->type);
+}
+
 
 int struct_offset(parser_t*p ,proto_t *type,token_t name,proto_sub_t *sub_){
     proto_debug(type);
@@ -147,22 +170,22 @@ int struct_offset(parser_t*p ,proto_t *type,token_t name,proto_sub_t *sub_){
 }
 
 void ident_update_off(parser_t *p,var_t*parent, int offset,bool force){
-    if(offset){
-        if(parent->base_addr == 0|| force){
-            
+    if(parent->base_addr == 0|| force){
+        if(offset)
             emit_load(p->m, REG_CX, offset);
-            if(!parent->isglo){
-                parent->isglo = TRUE;
-            }
+        if(!parent->isglo){
+            parent->isglo = TRUE;
+        }
+        if(offset)
             emit_addr2r(p->m, REG_BX, REG_CX);
+        parent->base_addr = 0;
+    }
+    else {
+        if(parent->isglo){
+            emit_load(p->m, REG_BX, parent->base_addr+offset);
         }
         else {
-            if(parent->isglo){
-                emit_load(p->m, REG_BX, parent->base_addr+offset);
-            }
-            else {
-                parent->base_addr-=offset;
-            }
+            parent->base_addr-=offset;
         }
     }
 }
@@ -224,7 +247,23 @@ void expr_ident(parser_t* p, var_t *inf){
             parent.type = sub.builtin;
             
         }else if(lexer_skip(p->l, '[')){
-            trigger_parser_err(p, "Not supported yet");
+            if(!parent.ptr_depth){
+                trigger_parser_err(p, "'[' can only be applied to a pointer");
+            }
+            if(!parent.isglo){
+                emit_mov_r2r(p->m, REG_BX, REG_BP);
+                emit_load(p->m, REG_CX, parent.base_addr);
+                emit_minusr2r(p->m, REG_BX, REG_CX);
+            }
+            ident_update_off(p, &parent, offset, 1);
+            offset=0;
+            emit_mov_addr2r(p->m, REG_AX, REG_BX);
+            array_visit(p, &parent,1);
+            while(lexer_skip(p->l, ']')){
+                emit_mov_addr2r(p->m, REG_AX, REG_BX);
+                array_visit(p, &parent,1);
+            }
+            *inf = parent;
         }else if(lexer_skip(p->l, '(')){
             if(!is_fst){
                 parent.base_addr+=offset;
@@ -281,20 +320,14 @@ void expr_prim(parser_t* p,var_t *inf,bool left_val_only){
             i++;len++;
         }
         p->l->cursor=i+1;
-        if(lexer_next(p->l).type == '['){
-            //TODO
-            lexer_next(p->l);
-            
+        u64 v = (u64)module_add_string(p->m, TKSTR2VMSTR(start, len));
+        emit_load(p->m, REG_AX, v);
+        inf->ptr_depth = 1;
+        inf->type = TP_U8;
+        while(lexer_skip(p->l, '[')){
+            array_visit(p, inf,0);
         }
-        else {
-            p->l->cursor=i+1;
-            u64 v = (u64)vec_push_n(&p->m->heap,start,len);
-            vec_push(&p->m->heap, &end);
-            emit_load(p->m, REG_AX, v);
-            inf->ptr_depth = 1;
-            inf->type = TP_U8;
-            return;
-        }
+        return;
         
     }else if(t == TK_IDENT){
 

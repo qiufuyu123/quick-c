@@ -50,6 +50,8 @@ typedef struct{
 
     hashmap_t local_sym_table;
 
+    vec_t str_table;
+
     vec_t heap;
 
     int stack;
@@ -62,6 +64,7 @@ typedef struct{
 }vm_string_t;
 
 #define CSTR2VMSTR(s) (vm_string_t){.len=strlen(s),.ptr=s} 
+#define TKSTR2VMSTR(s,len) (vm_string_t){.len = len,.ptr = s}
 
 typedef struct{
     u64 ptr;
@@ -81,6 +84,8 @@ void module_add_prototype(module_t *m,proto_t *t,vm_string_t name);
 
 void module_add_var(module_t* m,var_t *v,vm_string_t name);
 
+void* module_add_string(module_t *m,vm_string_t str);
+
 var_t* var_new_base(char type,u64 v,int ptr,bool isglo,proto_t *prot);
 
 proto_t* proto_new(int base_len);
@@ -89,7 +94,7 @@ function_frame_t *function_new(u64 ptr);
 
 void proto_debug(proto_t *type);
 
-proto_sub_t* subproto_new(char offset,char builtin,proto_t*prot,int ptrdepth);
+proto_sub_t* subproto_new(int offset,char builtin,proto_t*prot,int ptrdepth);
 
 void emit(module_t *v,char op);
 

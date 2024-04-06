@@ -12,3 +12,5 @@ u8 test()
     return 1;
 }
 test();
+console.prints("hello world!");
+console.print("hello world!"[0],1);
