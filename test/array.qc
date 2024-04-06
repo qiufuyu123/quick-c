@@ -16,7 +16,10 @@ u8 test(){
     b[0]=1;
     b[1]=2;
     b[2]=3;
-
+    u8 **c = array.new(8,2);
+    c[0]= &b[0];
+    c[1]= &b[1];
+    console.print(*c[0],0);
     console.print(b[0],0);
     console.print(b[1],0);
     console.print(b[2],0);
