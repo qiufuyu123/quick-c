@@ -27,6 +27,15 @@ enum op_priority
     
 };
 
+#define VAR_EXIST_GLO (hashmap_get(&p->m->sym_table,&p->l->code[p->l->tk_now.start], p->l->tk_now.length))
+#define VAR_EXIST_LOC (hashmap_get(&p->m->local_sym_table,&p->l->code[p->l->tk_now.start], p->l->tk_now.length))
+
+void expr_root(parser_t*p,var_t*inf);
+void expr_prim(parser_t*p,var_t*inf,bool leftval);
+void prep_assign(parser_t *p,var_t *v);
+void assignment(parser_t *p,var_t *v);
+void trigger_parser_err(parser_t* p,const char *s,...);
+
 void parser_start(module_t *m,Lexer_t* lxr);
 
 #endif
