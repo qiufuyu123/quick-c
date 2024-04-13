@@ -351,7 +351,26 @@ void stmt(parser_t *p){
         }
         return;
     }
-    else {
+    else if(tt == TK_WHILE){
+        lexer_expect(p->l, '(');
+        lexer_next(p->l);
+        u64 top_adt = (u64)jit_top(p->m);
+        var_t inf;
+        expr_root(p, &inf);
+        lexer_expect(p->l, ')');
+        lexer_expect(p->l, '{');
+        if(inf.type == TP_CUSTOM && inf.ptr_depth == 0)
+            trigger_parser_err(p, "Cannot compare!");
+        emit(p->m, 0x3c);emit(p->m,0x00); // cmp al,0
+        emit(p->m, 0x75);emit(p->m,0x0c);  // je +0x0c +
+        u64* els = emit_jmp_flg(p->m);  // jmpq rax |
+        stmt_loop(p);
+        emit_load(p->m, REG_AX, top_adt);
+        emit(p->m, 0xff);emit(p->m, 0xe0);//jmp rax
+        lexer_next(p->l);
+        *els = (u64)jit_top(p->m);
+        return;
+    }else {
         if(expression(p))
             return;
     }
