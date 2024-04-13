@@ -138,6 +138,8 @@ void emit_reg2rbp(module_t*v,char src,i32 offset);
 
 void emit_rbpload(module_t *v,char w,u32 offset);
 
+void emit_storelocaddr(module_t *v,u32 dst,u32 src);
+
 void emit_rsp2bx(module_t*v,u32 offset);
 
 u64* emit_offsetrsp(module_t*v,u32 offset,bool sub);

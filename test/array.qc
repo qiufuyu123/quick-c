@@ -11,6 +11,7 @@ console.print(a,7);
 array.free(a);
 
 u8 test(){
+    u16 d[8];
     u8 *b = array.new(1,8);
     console.print(b,7);
     b[0]=1;
@@ -19,11 +20,14 @@ u8 test(){
     u8 **c = array.new(8,2);
     c[0]= &b[0];
     c[1]= &b[1];
-    console.print(*c[0],0);
+    d[0]= 1;
+    d[1]=d[0]+2;
+    console.print(*c[1],0);
     console.print(b[0],0);
     console.print(b[1],0);
     console.print(b[2],0);
     console.print(b,7);
+    console.print(d[1],1);
     array.free(b);
     return 0;
 }

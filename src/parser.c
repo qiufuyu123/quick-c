@@ -133,6 +133,7 @@ var_t* var_def(parser_t*p){
     char builtin;
     proto_t *prot;
     function_frame_t *func = NULL;
+    u64 arr = 0;
     int sz = def_stmt(p, &ptr_depth, &builtin, &prot,NULL);
     if(var_exist(p)){
         trigger_parser_err(p, "variable is already existed!");
@@ -192,19 +193,42 @@ var_t* var_def(parser_t*p){
         *jmp = (u64)jit_top(p->m);
         
         return nv;
+    }else if(lexer_skip(p->l, '[')){
+        // u8 a[8];
+        lexer_next(p->l);
+        token_t num = lexer_next(p->l);
+        if(num.type != TK_INT){
+            trigger_parser_err(p, "Array init must be a integer token!");
+        }
+        arr = num.integer;
+        lexer_expect(p->l, ']');
     }
     var_t* nv = var_new_base(func?TP_FUNC:builtin, 0, func?1:ptr_depth,p->isglo,prot);
     if(p->isglo){
-        printf("variable alloc %d bytes on heap!\n",sz);
-        nv->base_addr = func?(u64)func:(u64)vec_reserv(&p->m->heap,sz);
+        printf("variable alloc %d bytes on heap!\n",arr?arr*sz:sz);
+        nv->base_addr = func?(u64)func:(u64)vec_reserv(&p->m->heap,arr?arr*sz:sz);
+        if(arr){
+            u64* ptr = (u64*)vec_reserv(&p->m->heap, 8);
+            *ptr = nv->base_addr;
+            nv->base_addr = (u64)ptr;
+        }
         hashmap_put(&p->m->sym_table, &p->l->code[name.start], name.length, nv);
     }else {
-        printf("variable alloc %d bytes on stack!\n",sz);
+        printf("variable alloc %d bytes on stack!\n",arr?arr*sz:sz);
         // notice here:
 
-        p->m->stack+=sz;
+        p->m->stack+=(arr?arr*sz:sz);
         nv->base_addr = p->m->stack;
+        if(arr){
+            u32 offset = p->m->stack;
+            p->m->stack+=8;
+            nv->base_addr = p->m->stack;
+            emit_storelocaddr(p->m, nv->base_addr, offset);
+        }
         hashmap_put(&p->m->local_sym_table, &p->l->code[name.start], name.length, nv);
+    }
+    if(arr){
+        nv->ptr_depth++;
     }
     return nv;
 

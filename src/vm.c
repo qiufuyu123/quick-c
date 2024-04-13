@@ -279,6 +279,13 @@ void emit_rbpload(module_t *v,char w,u32 offset){
     
 }
 
+void emit_storelocaddr(module_t *v,u32 dst,u32 src){
+    emit_mov_r2r(v, REG_AX, REG_BP);
+    emit_load(v, REG_BX, src);
+    emit_minusr2r(v, REG_AX, REG_BX);
+    emit_reg2rbp(v, TP_U64, dst);
+}
+
 void emit_rsp2bx(module_t*v,u32 offset){
     emit(v, 0x48);emit(v, 0x8b);
     if(offset<128){
