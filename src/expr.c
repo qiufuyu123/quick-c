@@ -147,7 +147,7 @@ void array_visit(parser_t*p,var_t *inf,bool leftval){
     lexer_next(p->l);
     expr_root(p, &left);
     lexer_expect(p->l, ']');
-    emit_load(p->m, REG_BX, inf->ptr_depth?8:inf->type==TP_CUSTOM?inf->prot->len:var_get_base_len(inf->type));
+    emit_load(p->m, REG_BX, inf->ptr_depth-1?8:inf->type==TP_CUSTOM?inf->prot->len:var_get_base_len(inf->type));
     emit_mulrbx(p->m);
     emit_mov_r2r(p->m, REG_BX, REG_AX);
     emit_poprax(p->m);
