@@ -10,11 +10,14 @@
 
 
 #include <bits/types/FILE.h>
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 
+static jmp_buf err_callback;
 
 void trigger_parser_err(parser_t* p,const char *s,...){
     va_list va;
@@ -24,12 +27,13 @@ void trigger_parser_err(parser_t* p,const char *s,...){
     va_end(va);
     printf("Parser: Line:%d\nNear:%s\n",p->l->line,lex_get_line(p->l));
     printf("Error: %s\n",buf);
-    exit(1);
+    // exit(1);
+    longjmp(err_callback, 1);
 }
 
 
 bool var_exist(parser_t*p){
-    return VAR_EXIST_GLO || VAR_EXIST_LOC;
+    return var_exist_glo(p) || VAR_EXIST_LOC;
     
 }
 
@@ -161,7 +165,7 @@ var_t* var_def(parser_t*p){
             lexer_next(p->l);
             sz = arg_decl(p, offset, &func->arg_table,&builtin);
             offset+=sz;
-            restore_arg(p, no, offset, builtin);
+            restore_arg(p, no, offset, sz==8?TP_U64:builtin);
             no++;
             if(lexer_skip(p->l, ')')){
                 break;
@@ -370,7 +374,44 @@ void stmt(parser_t *p){
         lexer_next(p->l);
         *els = (u64)jit_top(p->m);
         return;
-    }else {
+    }else if(tt == TK_IMPORT){
+        token_t name = lexer_next(p->l);
+        if(name.type != '\"')
+            trigger_parser_err(p, "Expect a string!");
+        int i = p->l->cursor;
+        int start = i;
+        int len = 0;
+        int last_name = i;
+        while (p->l->code[i]!='\"') {
+            if(p->l->code[i] == '.'){
+                p->l->code[i] = '/';
+                last_name=i+1;
+            }
+            i++;len++;
+        }
+        p->l->cursor=i;
+        lexer_next(p->l);
+        module_t *mod = module_liblist_get(&p->l->code[start], len);
+        if(!mod){
+            char path[100]={0};
+            memcpy(path, &p->l->code[start],len);
+            strcat(path, ".qc");
+            mod = module_compile(path, &p->l->code[last_name], len-(last_name-start), 1);
+            if(!mod){
+                trigger_parser_err(p, "Fail to import:%s\n",path);
+            }
+            module_liblist_add(mod);
+            printf("Load one new module:%s\n",path);
+        }
+        if(!mod){
+            trigger_parser_err(p, "fail to load module!");
+        }
+        var_t * lib = var_new_base(TP_LIB, (u64)&mod->sym_table, 0, 1, 0);
+        hashmap_put(&p->m->sym_table, &p->l->code[last_name], len-(last_name-start),lib );
+
+        return;
+    }
+    else {
         if(expression(p))
             return;
     }
@@ -382,8 +423,6 @@ void parser_start(module_t *m,Lexer_t* lxr){
     p.l = lxr;
     p.m = m;
     p.isglo = TRUE;
-    qc_lib_console(m);
-    qc_lib_array(m);
     emit(m, 0x55);
     emit_mov_r2r(m, REG_BP, REG_SP);
     while (!lexer_skip(lxr, TK_EOF)) {
@@ -392,9 +431,34 @@ void parser_start(module_t *m,Lexer_t* lxr){
     }
     emit(m, 0xc9); // leave
     emit(m, 0xc3); // ret
-    int (*test)() = m->jit_compiled;
-    FILE *f = fopen("core.bin", "wc");
-    fwrite(m->jit_compiled, m->jit_cur, 1, f);
-    fclose(f);
-    printf("JIT(%d bytes) CALLED:%d\n",m->jit_cur, test());
+    // int (*test)() = m->jit_compiled;
+    
+    // printf("JIT(%d bytes) CALLED:%d\n",m->jit_cur, test());
+}
+
+module_t* module_compile(char *path,char *module_name, int name_len,bool is_module){
+    Lexer_t lex;
+    module_t *mod = calloc(1, sizeof(module_t));
+    FILE *fp = fopen(path, "r");
+    if(!fp){
+        return 0;
+    }
+    fseek(fp, 0, SEEK_END);
+    u32 sz = ftell(fp)+1;
+    fseek(fp, 0, SEEK_SET);
+    char *buf = calloc(1, sz);
+    fread(buf, sz-1, 1, fp);
+    lexer_init(&lex, path, buf);
+    jmp_buf old;
+    old[0]=err_callback[0];
+    int ret = setjmp(err_callback);
+    module_init(mod, TKSTR2VMSTR(module_name, name_len));
+    if(!ret){
+        parser_start(mod, &lex);
+        err_callback[0]=old[0];
+        return mod;
+    }else {
+        err_callback[0]=old[0];
+        return 0;
+    }
 }

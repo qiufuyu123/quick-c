@@ -3,6 +3,25 @@
 #include "parser.h"
 #include "vm.h"
 
+void* var_exist_glo(parser_t *p){
+    var_t *ret = hashmap_get(&p->m->sym_table,&p->l->code[p->l->tk_now.start], p->l->tk_now.length);
+    if(!ret){
+        return ret;
+    }
+    if(ret->type == TP_LIB){
+        while (ret->type == TP_LIB) {
+            lexer_expect(p->l, '.');
+            if(lexer_next(p->l).type != TK_IDENT){
+                trigger_parser_err(p, "Need an identity");
+            }
+            ret = hashmap_get((hashmap_t*)ret->base_addr,&p->l->code[p->l->tk_now.start], p->l->tk_now.length);
+            if(!ret)
+                return 0;
+        }
+    }
+    return ret;
+}
+
 void load_b2a(parser_t*p, char type){
     if(type < TP_I64){
         emit(p->m, 0x48);emit(p->m, 0x31);emit(p->m, 0xc0); // xor rax,rax
@@ -191,7 +210,7 @@ void ident_update_off(parser_t *p,var_t*parent, int offset,bool force){
 }
 
 void expr_ident(parser_t* p, var_t *inf){
-    var_t *t = VAR_EXIST_GLO;
+    var_t *t = var_exist_glo(p);
     if(t == NULL){
         t = VAR_EXIST_LOC;
     }

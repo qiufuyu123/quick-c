@@ -7,13 +7,18 @@
 #include <sys/types.h>
 enum{
     TP_I8,TP_U8,TP_I16,TP_U16,TP_I32,TP_U32,TP_I64,TP_U64,TP_INTEGER,
-    TP_FLOAT,TP_FUNC,TP_CUSTOM
+    TP_FLOAT,TP_FUNC,TP_CUSTOM,TP_LIB
 };
 
 enum{
     REG_AX,REG_CX,REG_DX,REG_BX,REG_SP,REG_BP,REG_SI,REG_DI,REG_R8,
     REG_R9,REG_R10,REG_R11,REG_R12,REG_R13,REG_R14,REG_R15
 };
+
+typedef struct{
+    u32 len;
+    char *ptr;
+}vm_string_t;
 
 typedef struct{
     int len;
@@ -36,7 +41,7 @@ typedef struct{
 }var_t;
 
 typedef struct{
-    char *module_name;  // source are split into module
+    vm_string_t name;
 
     char *jit_compiled;
     
@@ -58,13 +63,8 @@ typedef struct{
 
 }module_t;
 
-typedef struct{
-    u32 len;
-    char *ptr;
-}vm_string_t;
-
 #define CSTR2VMSTR(s) (vm_string_t){.len=strlen(s),.ptr=s} 
-#define TKSTR2VMSTR(s,len) (vm_string_t){.len = len,.ptr = s}
+#define TKSTR2VMSTR(s,l) (vm_string_t){.len = l,.ptr = s}
 
 typedef struct{
     u64 ptr;
@@ -75,8 +75,13 @@ typedef struct{
 
 #define BYTE_ALIGN(x,a) ( ((x) + ((a) - 1) ) & ( ~((a) - 1) ) )
 
+void module_liblist_init();
 
-void module_init(module_t *v, char *name);
+void *module_liblist_get(char* name,int len);
+
+void module_liblist_add(module_t*mod);
+
+void module_init(module_t *v, vm_string_t name);
 
 void module_pack_jit(module_t*v);
 

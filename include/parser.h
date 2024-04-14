@@ -1,6 +1,7 @@
 #ifndef _H_PARSER
 #define _H_PARSER
 
+#include "hashmap.h"
 #include "lex.h"
 #include "vm.h"
 
@@ -27,9 +28,8 @@ enum op_priority
     
 };
 
-#define VAR_EXIST_GLO (hashmap_get(&p->m->sym_table,&p->l->code[p->l->tk_now.start], p->l->tk_now.length))
 #define VAR_EXIST_LOC (hashmap_get(&p->m->local_sym_table,&p->l->code[p->l->tk_now.start], p->l->tk_now.length))
-
+void* var_exist_glo(parser_t *p);
 
 int var_get_base_len(char type);
 void expr_root(parser_t*p,var_t*inf);
@@ -38,6 +38,6 @@ void prep_assign(parser_t *p,var_t *v);
 void assignment(parser_t *p,var_t *v);
 void trigger_parser_err(parser_t* p,const char *s,...);
 
-void parser_start(module_t *m,Lexer_t* lxr);
 
+module_t* module_compile(char *path,char *module_name, int name_len,bool is_module);
 #endif

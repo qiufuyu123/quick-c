@@ -1,15 +1,38 @@
 #include "vm.h"
 #include "define.h"
 #include "hashmap.h"
+#include "lib/array.h"
+#include "lib/console.h"
 #include "vec.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/types.h>
+
+static hashmap_t glo_libs;
+
 void panic_oom(const char *msg){
     printf("VM: %s: OOM\n",msg);
     exit(1);
+}
+
+void module_liblist_init(){
+    hashmap_create(2, &glo_libs);
+    //load native methods
+    module_t *native = calloc(1, sizeof(module_t));
+    module_init(native, CSTR2VMSTR("libqc/vm/native"));
+    qc_lib_console(native);
+    qc_lib_array(native);
+    module_liblist_add(native);
+}
+
+void *module_liblist_get(char* name,int len){
+    return hashmap_get(&glo_libs, name, len);
+}
+
+void module_liblist_add(module_t*mod){
+    hashmap_put(&glo_libs, mod->name.ptr, mod->name.len, mod);
 }
 
 void module_pack_jit(module_t*v){
@@ -25,8 +48,8 @@ void module_pack_jit(module_t*v){
     v->jit_cur=0;
 }
 
-void module_init(module_t *v, char *name){
-    v->module_name = name;
+void module_init(module_t *v, vm_string_t name){
+    v->name = name;
     vec_init(&v->heap, 1, 64);
     vec_init(&v->str_table, 1, 64);
     if(hashmap_create(2, &v->sym_table)){
