@@ -10,7 +10,7 @@
 #include <sys/mman.h>
 #include <sys/types.h>
 
-static hashmap_t glo_libs;
+hashmap_t glo_libs;
 
 void panic_oom(const char *msg){
     printf("VM: %s: OOM\n",msg);
@@ -21,6 +21,7 @@ void module_liblist_init(){
     hashmap_create(2, &glo_libs);
     //load native methods
     module_t *native = calloc(1, sizeof(module_t));
+    native->is_native = 1;
     module_init(native, CSTR2VMSTR("libqc/vm/native"));
     qc_lib_console(native);
     qc_lib_array(native);
@@ -52,6 +53,7 @@ void module_init(module_t *v, vm_string_t name){
     v->name = name;
     vec_init(&v->heap, 1, 64);
     vec_init(&v->str_table, 1, 64);
+    vec_init(&v->reloc_table, sizeof(u64), 2);
     if(hashmap_create(2, &v->sym_table)){
         panic_oom("Fail to alloc sym_table");
     }
@@ -78,6 +80,10 @@ void* module_add_string(module_t *m,vm_string_t str){
     void *ret = (char*)vec_top(&m->str_table)+1;
     vec_push_n(&m->str_table,str.ptr, str.len);
     return ret;
+}
+
+void module_add_reloc(module_t *m, u64 addr){
+    vec_push(&m->reloc_table, &addr);
 }
 
 function_frame_t *function_new(u64 ptr){
@@ -123,7 +129,13 @@ void module_add_stack_sym(module_t *v,hashmap_t *next){
     hashmap_iterate_pairs(next, _iter_sym, &v->local_sym_table);
 }
 
+int _iter_destroy(void *const context,struct hashmap_element_s* const e){
+    free(e->data);
+    return 0;
+}
+
 void module_clean_stack_sym(module_t *v){
+    hashmap_iterate_pairs(&v->local_sym_table, _iter_destroy, 0);
     hashmap_destroy(&v->local_sym_table);
     hashmap_create(2, &v->local_sym_table);
 }
@@ -310,6 +322,12 @@ void emit_restorersp(module_t *v){
     emit(v,0x5c);
 }
 
+void emit_loadglo(module_t *v, u64 base_addr,bool isrbx){
+    u64*ptr =(u64*)emit_label_load(v,isrbx);
+    *ptr = base_addr;
+    module_add_reloc(v, (u64)ptr);
+}
+
 void emit_param_4(module_t *v,u64 a,u64 b,u64 c,u64 d){
     emit_load(v, REG_CX, a);emit_load(v, REG_DX, b);
     emit_load(v, REG_R8, c);emit_load(v, REG_R9, d);
@@ -458,6 +476,14 @@ void emit_add_esp(module_t* v,int sz){
 void emit_call_leave(module_t* v,int sz){
     emit_load(v, REG_AX, sz);
     emit_addr2r(v, REG_SP, REG_AX);
+}
+
+u64 emit_label_load(module_t* v,bool isrbx){
+    emit(v, 0x48);emit(v,isrbx?0xbb:0xb8);
+    u64 ret = (u64)v->jit_compiled+ v->jit_cur;
+    u64 def = 0;
+    emit_data(v, 8, &def);
+    return ret;
 }
 
 void* string_new(module_t*v,char *str){

@@ -30,12 +30,13 @@ void vec_push(vec_t*v,void*data){
 void* vec_reserv(vec_t*v,int len){
     if(v->size+len-1 >= v->capacity){
         // enlarge
-        void* m = realloc(v->data, (v->size+len-1)*2);
+        void* m = realloc(v->data, (v->capacity+10)*v->unit);
         if(m == NULL){
             printf("Vec Allocation OOM!\n");
             exit(1);
         }
         v->data = m;
+        v->capacity+=10;
     }
     void *r = &v->data[v->size*v->unit];
     v->size+=len;

@@ -1,5 +1,5 @@
-u8 _debug_ = 1;
-
+//u8 _debug_ = 1;
+import "libqc.io"
 
 u64 a = 0xffff8888ffff8888;
 a;

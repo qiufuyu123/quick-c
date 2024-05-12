@@ -89,7 +89,7 @@ void func_call(parser_t *p,var_t* inf){
         function_frame_t *func = (function_frame_t*)inf->base_addr;
         // set up arguments
         prepare_calling(p);
-        emit_mov_r2r(p->m, REG_AX, REG_BX);
+        // emit_mov_r2r(p->m, REG_AX, REG_BX);
         //                
         emit(p->m, 0xff);emit(p->m,0xd0);
         inf->ptr_depth = func->ret_type.ptr_depth;
@@ -109,8 +109,9 @@ void func_call(parser_t *p,var_t* inf){
 void prep_assign(parser_t *p,var_t *v){
     if(v->type == TP_CUSTOM && v->ptr_depth == 0)
         trigger_parser_err(p, "Struct is not supported");
-    if(v->isglo)
-        emit_load(p->m, REG_BX, v->base_addr);
+    if(v->isglo){
+        emit_loadglo(p->m, v->base_addr,1);
+    }
     else{
         emit_mov_r2r(p->m, REG_BX, REG_BP);
         emit_sub_rbx(p->m, v->base_addr);
@@ -178,7 +179,7 @@ void array_visit(parser_t*p,var_t *inf,bool leftval){
 
 
 int struct_offset(parser_t*p ,proto_t *type,token_t name,proto_sub_t *sub_){
-    proto_debug(type);
+    //proto_debug(type);
     proto_sub_t *sub = (proto_sub_t*)hashmap_get(&type->subs, &p->l->code[name.start],name.length);
     if(sub){
         if(sub_)
@@ -186,27 +187,6 @@ int struct_offset(parser_t*p ,proto_t *type,token_t name,proto_sub_t *sub_){
         return sub->offset;
     }
     return -1;
-}
-
-void ident_update_off(parser_t *p,var_t*parent, int offset,bool force){
-    if(parent->base_addr == 0|| force){
-        if(offset)
-            emit_load(p->m, REG_CX, offset);
-        if(!parent->isglo){
-            parent->isglo = TRUE;
-        }
-        if(offset)
-            emit_addr2r(p->m, REG_BX, REG_CX);
-        parent->base_addr = 0;
-    }
-    else {
-        if(parent->isglo){
-            emit_load(p->m, REG_BX, parent->base_addr+offset);
-        }
-        else {
-            parent->base_addr-=offset;
-        }
-    }
 }
 
 void expr_ident(parser_t* p, var_t *inf){
@@ -222,9 +202,9 @@ void expr_ident(parser_t* p, var_t *inf){
     if(parent.isglo){
         if(parent.type == TP_FUNC){
             function_frame_t *fram = (function_frame_t*)parent.base_addr;
-            emit_load(p->m, REG_BX, fram->ptr);
+            emit_loadglo(p->m, fram->ptr,0);
         }
-        else emit_load(p->m, REG_BX, parent.base_addr);
+        else emit_loadglo(p->m, parent.base_addr,1);
     }else{
         emit_mov_r2r(p->m, REG_BX, REG_BP);
         emit_sub_rbx(p->m, parent.base_addr);
@@ -274,7 +254,9 @@ bool expr_prim(parser_t* p,var_t *inf,bool left_val_only){
         }
         p->l->cursor=i+1;
         u64 v = (u64)module_add_string(p->m, TKSTR2VMSTR(start, len));
-        emit_load(p->m, REG_AX, v);
+        // emit_load(p->m, REG_AX, v);
+        // module_add_reloc(p->m, v);
+        *(u64*)emit_label_load(p->m, 0) = v;
         inf->ptr_depth = 1;
         inf->type = TP_U8;
         while(lexer_skip(p->l, '[')){
@@ -284,7 +266,7 @@ bool expr_prim(parser_t* p,var_t *inf,bool left_val_only){
         
     }else if(t == TK_IDENT){
         expr_ident(p, inf);
-        return 0;
+        return inf->type == TP_FUNC;
     }else if(t == '('){
         lexer_next(p->l);
         expr_root(p, inf);
@@ -315,7 +297,7 @@ bool expr_prim(parser_t* p,var_t *inf,bool left_val_only){
             if(left.isglo)
                 emit_mov_r2r(p->m, REG_BX, REG_AX);
             assignment(p, &left);
-            return;
+            return 1;
         }
         //De-ptr
         emit_mov_addr2r(p->m, REG_AX, REG_AX);
@@ -345,8 +327,6 @@ bool expr_base(parser_t *p,var_t *inf,bool ptr_only){
     var_t left;
     bool need_load = 1;
     bool is_const = expr_prim(p, &left, 0);
-    if(is_const)
-        return 1;
     while (1) {
         
         if(lexer_skip(p->l, '.') && left.type == TP_CUSTOM){
@@ -401,7 +381,7 @@ bool expr_base(parser_t *p,var_t *inf,bool ptr_only){
             lexer_next(p->l);lexer_next(p->l);
             assignment(p, inf);
     }
-    else if(need_load && !ptr_only){
+    else if(need_load && !ptr_only && !is_const){
         if(inf->type == TP_CUSTOM && inf->ptr_depth == 0){
             trigger_parser_err(p, "Cannot load a structure!");
         }

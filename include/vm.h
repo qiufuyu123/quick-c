@@ -56,12 +56,12 @@ typedef struct{
 
     hashmap_t local_sym_table;
 
+    vec_t reloc_table;
     vec_t str_table;
-
     vec_t heap;
 
     int stack;
-
+    bool is_native;
 }module_t;
 
 #define CSTR2VMSTR(s) (vm_string_t){.len=strlen(s),.ptr=s} 
@@ -75,6 +75,8 @@ typedef struct{
 }function_frame_t;
 
 #define BYTE_ALIGN(x,a) ( ((x) + ((a) - 1) ) & ( ~((a) - 1) ) )
+
+extern hashmap_t glo_libs;
 
 void module_liblist_init();
 
@@ -91,6 +93,8 @@ void module_add_prototype(module_t *m,proto_t *t,vm_string_t name);
 void module_add_var(module_t* m,var_t *v,vm_string_t name);
 
 void* module_add_string(module_t *m,vm_string_t str);
+
+void module_add_reloc(module_t *m, u64 addr);
 
 var_t* var_new_base(char type,u64 v,int ptr,bool isglo,proto_t *prot);
 
@@ -140,6 +144,8 @@ void emit_saversp(module_t *v);
 
 void emit_restorersp(module_t *v);
 
+void emit_loadglo(module_t *v, u64 base_addr,bool isrbx);
+
 void emit_poprax(module_t*v);
 
 void emit_param_4(module_t *v,u64 a,u64 b,u64 c,u64 d);
@@ -161,6 +167,8 @@ void emit_call(module_t *v,u64 addr);
 u64* emit_jmp_flg(module_t*v);
 
 void emit_call_leave(module_t* v,int sz);
+
+u64 emit_label_load(module_t* v,bool isrbx);
 
 void proto_impl(module_t *p, proto_t *type);
 

@@ -197,7 +197,7 @@ var_t* var_def(parser_t*p){
         }
         
         *jmp = (u64)jit_top(p->m);
-        
+        module_add_reloc(p->m, (u64)jmp);
         return nv;
     }else if(lexer_skip(p->l, '[')){
         // u8 a[8];
@@ -219,10 +219,6 @@ var_t* var_def(parser_t*p){
             nv->base_addr = (u64)ptr;
         }
         hashmap_put(&p->m->sym_table, &p->l->code[name.start], name.length, nv);
-        if(prot && ptr_depth == 0){
-            emit_load(p->m, REG_AX, nv->base_addr);
-            proto_impl(p->m, prot);
-        }
     }else {
         printf("variable alloc %d bytes on stack!\n",arr?arr*sz:sz);
         // notice here:
@@ -515,3 +511,4 @@ module_t* module_compile(char *path,char *module_name, int name_len,bool is_modu
         return 0;
     }
 }
+
