@@ -29,6 +29,7 @@ typedef struct{
     int offset;
     int ptr_depth;
     char builtin;
+    u64 impl;
     proto_t *type;
 }proto_sub_t;
 
@@ -115,6 +116,10 @@ void emit_data(module_t*v,char w,void* data);
 
 void emit_load(module_t*v,char r,u64 m);
 
+void emit_sub_rbx(module_t *v,int offset);
+
+void emit_add_rbx(module_t *v,int offset);
+
 void emit_mov_r2r(module_t*v,char dst,char src);
 
 void emit_mov_addr2r(module_t*v,char dst,char src);
@@ -157,5 +162,12 @@ u64* emit_jmp_flg(module_t*v);
 
 void emit_call_leave(module_t* v,int sz);
 
+void proto_impl(module_t *p, proto_t *type);
+
 void* string_new(module_t*v,char *str);
+
+void glo_sym_debug(hashmap_t *map);
+
+void stack_debug(hashmap_t *map);
+
 #endif

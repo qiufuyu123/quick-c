@@ -1,3 +1,4 @@
+import "libqc.vm.native"
 struct subsub{
     u8 a;
     u8 b;
@@ -20,7 +21,8 @@ struct aaa{
     sub *test_sub_ptr;
 };
 sub t;
-t.m = 666;
+t.
+m = 666;
 t.n = 777;
 i16 b = 12321;
 aaa outside;
@@ -43,8 +45,8 @@ u8 test(){
     inside.e = &b;
     inside.eee = 0x2323232323232;
     inside.test_sub_ptr = &sub_inside;
-    console.print(inside.test_sub_ptr.m,5);
-    console.print(sub_inside.l.b,5);
+    native.console.print(inside.test_sub_ptr.m,5);
+    native.console.print(sub_inside.l.b,5);
     return 0;
 }
 test();

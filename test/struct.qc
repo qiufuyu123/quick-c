@@ -1,4 +1,5 @@
 u8 _debug_ = 1;
+import "libqc.io"
 
 
 struct sub{
@@ -40,17 +41,17 @@ c.test_sub_ptr.n;
 
 u16 test2(){
     aaa inside;
-    inside.bbb = 127;
-    inside.ccc = 11;
-    inside.ddd = 33;
+    inside.bbb = 1;
+    inside.ccc = 2;
+    inside.ddd = 3;
     inside.e = &e;
-    inside.bbb;
-    inside.ccc;
-    inside.ddd;
+    io.printu8(inside.bbb);
+    io.printu8(inside.ccc);
+    io.printu8(inside.ddd);
     inside.e;
     return inside.e;
 }
-console.print(test2(),7);
+test2();
 // [debug lib]: 999
 // [debug lib]: 888
 // [debug lib]: 5625ce05f891

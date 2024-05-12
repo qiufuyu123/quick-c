@@ -24,3 +24,16 @@ u64 **addr2 = &addr;
 addr2;
 u64 r = **addr2;
 r;
+
+// [debug lib]: ffff8888ffff8888
+// [debug lib]: 562d30154081
+// [debug lib]: 136
+// [debug lib]: 136
+// [debug lib]: ffff8888ffff8887
+// [debug lib]: ffff8888ffff8887
+// [debug lib]: 135
+// [debug lib]: 135
+// [debug lib]: 123456
+// [debug lib]: 562d30154092
+// [debug lib]: 562d30154089
+// [debug lib]: 123456

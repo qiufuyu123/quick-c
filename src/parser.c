@@ -25,6 +25,7 @@ void trigger_parser_err(parser_t* p,const char *s,...){
     va_start(va, s);
     vsprintf(buf, s, va);
     va_end(va);
+    
     printf("Parser: Line:%d\nNear:%s\n",p->l->line,lex_get_line(p->l));
     printf("Error: %s\n",buf);
     // exit(1);
@@ -179,10 +180,11 @@ var_t* var_def(parser_t*p){
         
         p->m->stack=offset;
 
-        var_t* nv = var_new_base(func?TP_FUNC:builtin, (u64)func, func?1:ptr_depth,p->isglo,prot);
+        var_t* nv = var_new_base(func?TP_FUNC:builtin, (u64)func, func?1:ptr_depth,1,prot);
         hashmap_put(&p->m->sym_table, &p->l->code[name.start], name.length, nv);
-        stmt_loop(p);
 
+        stmt_loop(p);
+        stack_debug(&p->m->local_sym_table);
         module_clean_stack_sym(p->m);
         lexer_next(p->l);
         p->m->stack = BYTE_ALIGN(p->m->stack, 16);
@@ -217,6 +219,10 @@ var_t* var_def(parser_t*p){
             nv->base_addr = (u64)ptr;
         }
         hashmap_put(&p->m->sym_table, &p->l->code[name.start], name.length, nv);
+        if(prot && ptr_depth == 0){
+            emit_load(p->m, REG_AX, nv->base_addr);
+            proto_impl(p->m, prot);
+        }
     }else {
         printf("variable alloc %d bytes on stack!\n",arr?arr*sz:sz);
         // notice here:
@@ -230,6 +236,17 @@ var_t* var_def(parser_t*p){
             emit_storelocaddr(p->m, nv->base_addr, offset);
         }
         hashmap_put(&p->m->local_sym_table, &p->l->code[name.start], name.length, nv);
+        if(prot && ptr_depth == 0){
+            if(arr){
+                printf("WARN: impl for static array will not be applied!");
+
+            }else{
+                // emit_mov_r2r(p->m, REG_AX, REG_BP);
+                // emit_load(p->m, REG_BX, nv->base_addr);
+                // emit_minusr2r(p->m, REG_AX, REG_BX);
+                // proto_impl(p->m, prot);
+            }
+        }
     }
     if(arr){
         nv->ptr_depth++;
@@ -238,17 +255,29 @@ var_t* var_def(parser_t*p){
 
 }
 
+int def_or_assign(parser_t *p){
+    var_t *nv= var_def(p);
+    if(nv->type == TP_FUNC)
+        return 1;
+    if(lexer_skip(p->l, '=')){
+
+        //assignment
+        lexer_next(p->l);lexer_next(p->l);
+        prep_assign(p, nv);
+        assignment(p, nv);
+    }
+}
+
 int expression(parser_t*p){
     Tk tt = p->l->tk_now.type;
     if(tt == TK_IDENT){
         token_t tk = p->l->tk_now;
         if(hashmap_get(&p->m->prototypes,&p->l->code[tk.start] ,tk.length)){
-            var_t* v = var_def(p);
-            return v->type==TP_FUNC;
+            return def_or_assign(p);
         }
         // just assignment?
         var_t inf;
-        expr_prim(p, &inf,FALSE);        
+        expr_base(p, &inf,FALSE);        
         // print the variable
         //
         // if(inf.type!=TP_CUSTOM && inf.isglo){
@@ -274,16 +303,7 @@ int expression(parser_t*p){
         var_t inf;
         expr_root(p, &inf);
     }else {
-        var_t *nv= var_def(p);
-        if(nv->type == TP_FUNC)
-            return 1;
-        if(lexer_skip(p->l, '=')){
-
-            //assignment
-            lexer_next(p->l);lexer_next(p->l);
-            prep_assign(p, nv);
-            assignment(p, nv);
-        }
+        return def_or_assign(p);
     }
     return 0;
     
@@ -410,6 +430,39 @@ void stmt(parser_t *p){
         hashmap_put(&p->m->sym_table, &p->l->code[last_name], len-(last_name-start),lib );
 
         return;
+    }else if(tt == TK_IMPL){
+        // lexer_expect(p->l, '(');
+        // lexer_next(p->l);
+        // token_t name = p->l->tk_now;
+        // if(name.type != TK_IDENT){
+        //     trigger_parser_err(p, "Impl needs a struct name!");
+        // }
+        // proto_t *parent = hashmap_get(&p->m->prototypes, &p->l->code[name.start], name.length);
+        // if(!parent){
+        //     trigger_parser_err(p, "struct does not found!");
+        // }
+        // lexer_expect(p->l, ',');
+        // lexer_next(p->l);
+        // token_t sub = p->l->tk_now;
+        // if(sub.type != TK_IDENT){
+        //     trigger_parser_err(p, "Impl needs a member");
+        // }
+        // proto_sub_t *member = hashmap_get(&parent->subs, &p->l->code[sub.start], sub.length);
+        // if(!member){
+        //     trigger_parser_err(p, "Member does not exist!");
+        // }
+        // if(member->ptr_depth == 0){
+        //     trigger_parser_err(p, "Member must be a pointer!");
+        // }
+        // lexer_expect(p->l, ')');
+        // lexer_next(p->l);
+        // var_t *t = var_def(p);
+        
+        // if(t->type != TP_FUNC){
+        //     trigger_parser_err(p, "Impl needs a function!");
+        // }
+        // member->impl =t->base_addr;
+        // return;
     }
     else {
         if(expression(p))

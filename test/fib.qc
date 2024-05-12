@@ -1,3 +1,4 @@
+import "libqc.io"
 
 
 u64 fib(u64 a){
@@ -8,5 +9,5 @@ u64 fib(u64 a){
     b = fib(a-1)+fib(a-2);
     return b;
 }
-
-console.print(fib(7),7);
+io.println("233");
+io.printu8(fib(8));

@@ -36,8 +36,8 @@ void module_liblist_add(module_t*mod){
 }
 
 void module_pack_jit(module_t*v){
-    v->jit_compiled_len = 4096;
-    u64 len = 4096;
+    v->jit_compiled_len = 4096*8;
+    u64 len = 4096*8;
     char *memory = mmap(NULL,             // address
                       len,             // size
                       PROT_READ | PROT_WRITE | PROT_EXEC,
@@ -150,12 +150,65 @@ void proto_debug(proto_t *type){
     printf("Prototype End(%d bytes)\n",type->len);
 }
 
+typedef struct{
+    module_t *p;
+    u32 offset;
+}_prot_impl_t;
+
+int _sym_iter_call(void* const context,struct hashmap_element_s* const e){
+    char buf[100]={0};
+    memcpy(buf, e->key, e->key_len);
+    var_t* addr = (var_t*)e->data;
+    printf("@%s: 0x%llx\n",buf,addr->base_addr);
+    return 0;
+}
+
+int _prot_impl_call(void* const context, struct hashmap_element_s* const e) {
+    char buf[100]={0};
+    memcpy(buf, e->key, e->key_len);
+    proto_sub_t* sub = e->data;
+    _prot_impl_t *p = context;
+    if(sub->builtin == TP_CUSTOM){
+        u32 old = p->offset;
+        p->offset+=sub->offset;
+        hashmap_iterate_pairs(&sub->type->subs, _prot_impl_call, p);
+        p->offset = old;
+    }else if(sub->impl){
+        function_frame_t *fb = (function_frame_t*)sub->impl;
+        emit_load(p->p,REG_BX,fb->ptr);
+        emit(p->p, 0x48);emit(p->p,0x89);emit(p->p,0x98);
+        u32 dst = p->offset+sub->offset;
+        emit_data(p->p, 4, &dst);
+    }
+    return 0;
+}
+
+void glo_sym_debug(hashmap_t *map){
+    printf("sym global: \n");
+    hashmap_iterate_pairs(map,_sym_iter_call,0);
+    printf("sym table end.\n");
+} 
+
+void stack_debug(hashmap_t *map){
+    printf("stack global: \n");
+    hashmap_iterate_pairs(map,_sym_iter_call,0);
+    printf("stack end.\n");
+} 
+
+void proto_impl(module_t *p, proto_t *type){
+    _prot_impl_t parent;
+    parent.p = p;
+    parent.offset = 0;
+    hashmap_iterate_pairs(&type->subs, _prot_impl_call, &parent);
+}
+
 proto_sub_t* subproto_new(int offset,char builtin,proto_t*prot,int ptrdepth){
     proto_sub_t* t = malloc(sizeof(proto_sub_t));
     t->offset = offset;
     t->type = prot;
     t->builtin=builtin;
     t->ptr_depth=ptrdepth;
+    t->impl = 0;
     return t;
 }
 
@@ -177,6 +230,21 @@ void emit_load(module_t*v,char r,u64 m){
     emit(v, 0x48);
     emit(v, 0xb8+r); 
     emit_data(v, 8, &m);
+}
+
+static void emit_offset_rbx_call(module_t *v,int offset, char w, char is_add){
+    emit(v, 0x48);
+    emit(v, w?0x81:0x83);
+    emit(v, is_add?0xc3:0xeb);
+    emit_data(v, w?4:1, &offset);
+}
+
+void emit_sub_rbx(module_t *v,int offset){
+    emit_offset_rbx_call(v, offset, offset>127, 0);
+}
+
+void emit_add_rbx(module_t *v,int offset){
+    emit_offset_rbx_call(v, offset, offset>127, 1);
 }
 
 static void emit_rm(module_t*v,char dst,char src,char mode,char opc){

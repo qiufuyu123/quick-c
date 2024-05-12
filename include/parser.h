@@ -33,11 +33,11 @@ void* var_exist_glo(parser_t *p);
 
 int var_get_base_len(char type);
 void expr_root(parser_t*p,var_t*inf);
-void expr_prim(parser_t*p,var_t*inf,bool leftval);
+bool expr_prim(parser_t*p,var_t*inf,bool leftval);
 void prep_assign(parser_t *p,var_t *v);
 void assignment(parser_t *p,var_t *v);
 void trigger_parser_err(parser_t* p,const char *s,...);
-
+bool expr_base(parser_t *p,var_t *inf,bool needptr);
 
 module_t* module_compile(char *path,char *module_name, int name_len,bool is_module);
 #endif

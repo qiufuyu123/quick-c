@@ -1,6 +1,8 @@
 #include "define.h"
+#include "hashmap.h"
 #include "lex.h"
 #include "parser.h"
+#include "vec.h"
 #include "vm.h"
 
 void* var_exist_glo(parser_t *p){
@@ -81,14 +83,15 @@ void prepare_calling(parser_t*p){
     lexer_next(p->l);
 }
 
-void func_call(parser_t *p,var_t* inf,bool useaddr){
-    if(!useaddr && inf->type == TP_FUNC){
+void func_call(parser_t *p,var_t* inf){
+    if(inf->type == TP_FUNC){
         lexer_next(p->l);
         function_frame_t *func = (function_frame_t*)inf->base_addr;
         // set up arguments
         prepare_calling(p);
+        emit_mov_r2r(p->m, REG_AX, REG_BX);
         //                
-        emit_call(p->m,func->ptr);
+        emit(p->m, 0xff);emit(p->m,0xd0);
         inf->ptr_depth = func->ret_type.ptr_depth;
         inf->type = func->ret_type.builtin;
         inf->prot = func->ret_type.type;
@@ -108,6 +111,10 @@ void prep_assign(parser_t *p,var_t *v){
         trigger_parser_err(p, "Struct is not supported");
     if(v->isglo)
         emit_load(p->m, REG_BX, v->base_addr);
+    else{
+        emit_mov_r2r(p->m, REG_BX, REG_BP);
+        emit_sub_rbx(p->m, v->base_addr);
+    };
 }
 
 
@@ -116,19 +123,12 @@ void assignment(parser_t *p,var_t *v){
         trigger_parser_err(p, "Cannot assign to a constant");
     }
     var_t left;
-    if(v->isglo)
-        emit(p->m, 0x53); // push rbx
+    emit(p->m, 0x53); // push rbx
     expr_root(p, &left);
-    if(v->isglo)
-        emit(p->m, 0x5b); // pop rbx
-    if(left.type != TP_CUSTOM){
+    emit(p->m, 0x5b); // pop rbx
+    if(left.type != TP_CUSTOM || left.ptr_depth){
         // basic types --> already loaded into rax
         
-        if(!v->isglo){
-            emit_reg2rbp(p->m, v->ptr_depth?TP_U64:v->type, v->base_addr);
-            //TODO: local variable
-            return;
-        }
         if(v->ptr_depth){
             emit(p->m,0x48);emit(p->m, 0x89);emit(p->m, 0x03);
             return;
@@ -219,89 +219,22 @@ void expr_ident(parser_t* p, var_t *inf){
     }
     var_t parent = *t;
     *inf = parent;
-    if(parent.type != TP_FUNC && parent.isglo){
-        emit_load(p->m, REG_BX, parent.base_addr);
-    }
-    int offset = 0;
-    bool is_fst = 0;
-    while (1) {
-        
-        if(lexer_skip(p->l, '.') && parent.type == TP_CUSTOM){
-            lexer_next(p->l);
-            token_t name = lexer_next(p->l);
-            if(name.type != TK_IDENT){
-                trigger_parser_err(p, "Struct visit '.' needs a name!");
-            }
-            proto_sub_t sub;
-            int r = struct_offset(p, parent.prot, name,&sub);
-            if(r == -1){
-                trigger_parser_err(p, "Fail to find a member with this name!");
-            }
-            
-            inf->prot = sub.type;
-            inf->ptr_depth = sub.ptr_depth;
-            inf->type = sub.builtin;
-            if(parent.ptr_depth){
-                is_fst = 1;
-                if(!parent.isglo){
-                    emit_mov_r2r(p->m, REG_BX, REG_BP);
-                    emit_load(p->m, REG_CX, parent.base_addr);
-                    emit_minusr2r(p->m, REG_BX, REG_CX);
-                }
-                ident_update_off(p, &parent, offset,1);
-                // emit_load(p->m, REG_CX, offset);
-                // if(!p->isglo){
-                //     emit_addr2r(p->m, REG_BX, REG_SP);
-                //     parent.isglo = TRUE;
-                // }
-                // emit_addr2r(p->m, REG_BX, REG_CX);
-                emit_mov_addr2r(p->m, REG_BX, REG_BX);
-                offset = 0;
-                // now base_addr is meaningless
-                parent.base_addr = 0;
-            }
-            offset += r;
-            parent.ptr_depth = sub.ptr_depth;
-            parent.prot = sub.type;
-            parent.type = sub.builtin;
-            
-        }else if(lexer_skip(p->l, '[')){
-            if(!parent.ptr_depth){
-                trigger_parser_err(p, "'[' can only be applied to a pointer");
-            }
-            if(!parent.isglo){
-                emit_mov_r2r(p->m, REG_BX, REG_BP);
-                emit_load(p->m, REG_CX, parent.base_addr);
-                emit_minusr2r(p->m, REG_BX, REG_CX);
-            }
-            ident_update_off(p, &parent, offset, 1);
-            offset=0;
-            emit_mov_addr2r(p->m, REG_AX, REG_BX);
-            array_visit(p, &parent,1);
-            while(lexer_skip(p->l, ']')){
-                emit_mov_addr2r(p->m, REG_AX, REG_BX);
-                array_visit(p, &parent,1);
-            }
-            *inf = parent;
-        }else if(lexer_skip(p->l, '(')){
-            if(!is_fst){
-                parent.base_addr+=offset;
-            }
-            func_call(p, &parent,is_fst);
-            emit_mov_r2r(p->m, REG_BX, REG_AX);
-            parent.type = TP_U64;
-            *inf = parent;
-            inf->isglo = 2;
-            is_fst=1;
-        }else {
-           break;
+    if(parent.isglo){
+        if(parent.type == TP_FUNC){
+            function_frame_t *fram = (function_frame_t*)parent.base_addr;
+            emit_load(p->m, REG_BX, fram->ptr);
         }
+        else emit_load(p->m, REG_BX, parent.base_addr);
+    }else{
+        emit_mov_r2r(p->m, REG_BX, REG_BP);
+        emit_sub_rbx(p->m, parent.base_addr);
     }
-    ident_update_off(p, &parent, offset,0);
-    inf->base_addr = parent.base_addr;
+    
+    *inf = parent;
 }
 
-void expr_prim(parser_t* p,var_t *inf,bool left_val_only){
+
+bool expr_prim(parser_t* p,var_t *inf,bool left_val_only){
     Tk t = p->l->tk_now.type;
     if(t == TK_INT){
         if(left_val_only){
@@ -310,12 +243,12 @@ void expr_prim(parser_t* p,var_t *inf,bool left_val_only){
         emit_load(p->m, REG_AX, p->l->tk_now.integer);
     }else if(t == '+'){
         lexer_next(p->l);
-        expr_prim(p,inf,left_val_only);
-        return;
+        return expr_base(p,inf,left_val_only);
+        
     }else if(t == '-'){
         lexer_next(p->l);
         var_t left;
-        expr_prim(p,&left,left_val_only);
+        bool ret = expr_base(p,&left,left_val_only);
         if (left.type < TP_INTEGER) {
             
             // rax --> Im
@@ -326,6 +259,7 @@ void expr_prim(parser_t* p,var_t *inf,bool left_val_only){
         }else{
             trigger_parser_err(p, "'-' is only valid between numbers");
         }
+        return ret;
     }else if(t == '\"'){
         if(left_val_only){
             trigger_parser_err(p, "String cannot be a left-value");
@@ -346,65 +280,31 @@ void expr_prim(parser_t* p,var_t *inf,bool left_val_only){
         while(lexer_skip(p->l, '[')){
             array_visit(p, inf,0);
         }
-        return;
+        return 1;
         
     }else if(t == TK_IDENT){
-
         expr_ident(p, inf);
-        if(inf->isglo == 2){
-            // function call return
-            inf->isglo = 1;
-            return;
-        }
-        if(left_val_only)
-            return;
-        // only 2 possible:
-        // inf.isglo ==> addr of it loaded to BX
-        // !inf.isglo ==> nothing is loaded
-        if(inf->type == TP_CUSTOM && inf->ptr_depth == 0){
-                trigger_parser_err(p, "Struct loaded is not supported!");
-        }
-
-        if(lexer_skip(p->l, '=')){
-            // possible assignment:
-            lexer_next(p->l);lexer_next(p->l);
-            assignment(p, inf);
-            return;
-        }
-        
-        if(inf->isglo || inf->base_addr == 0){    
-            load_b2a(p, inf->ptr_depth?TP_U64: inf->type);
-            return;
-        }else
-            emit_rbpload(p->m, inf->ptr_depth?TP_U64:inf->type, inf->base_addr);
-        inf->isglo = TRUE;
-        return;
+        return 0;
     }else if(t == '('){
         lexer_next(p->l);
         expr_root(p, inf);
         lexer_expect(p->l, ')');
-        return;
+        return 1;
     }else if(t == '&'){
         if(left_val_only){
             trigger_parser_err(p, "Pointer cannot be a left-value");
         }
         lexer_next(p->l);
         var_t left;
-        expr_prim(p, &left,TRUE);
-        if(left.isglo){
-            emit_mov_r2r(p->m, REG_AX, REG_BX);
-        }else {
-            emit_mov_r2r(p->m, REG_AX, REG_BP);
-            emit_load(p->m, REG_BX, left.base_addr);
-            emit_minusr2r(p->m, REG_AX, REG_BX);
-        }
+        expr_base(p, &left,1);
+        emit_mov_r2r(p->m, REG_AX, REG_BX);
         inf->ptr_depth++;
     }else if(t == '*'){
         if(left_val_only)
             trigger_parser_err(p, "De-ptr cannot be a left val");
         lexer_next(p->l);
         var_t left;
-        expr_prim(p, &left,FALSE);
+        expr_base(p, &left,0);
         if(left.ptr_depth == 0){
             trigger_parser_err(p, "De-ptr must be operated on a pointer!");
         }
@@ -419,17 +319,101 @@ void expr_prim(parser_t* p,var_t *inf,bool left_val_only){
         }
         //De-ptr
         emit_mov_addr2r(p->m, REG_AX, REG_AX);
-        return;
+        return 1;
         
-    }else{
+    }else if(t == TK_NEW){
+        token_t name = lexer_next(p->l);
+        proto_t *type = hashmap_get(&p->m->prototypes, &p->l->code[name.start], name.length);
+        if(!type){
+            trigger_parser_err(p, "Struct does not exist!");
+        }
+        emit_load(p->m, REG_AX, (u64)vec_reserv(&p->m->heap, type->len));
+        proto_impl(p->m, type);
+        inf->type = TP_CUSTOM;
+        inf->prot = type;
+        inf->ptr_depth = 1;
+        return 1;
+    }
+    else{
         trigger_parser_err(p, "Unexpected token");
     }
     inf->type = TP_U64;
+    return 1;
+}
+
+bool expr_base(parser_t *p,var_t *inf,bool ptr_only){
+    var_t left;
+    bool need_load = 1;
+    bool is_const = expr_prim(p, &left, 0);
+    if(is_const)
+        return 1;
+    while (1) {
+        
+        if(lexer_skip(p->l, '.') && left.type == TP_CUSTOM){
+            if(left.ptr_depth){
+                emit_mov_addr2r(p->m, REG_BX, REG_BX);
+            }
+            lexer_next(p->l);
+            token_t name = lexer_next(p->l);
+            proto_sub_t sub;
+            if(name.type != TK_IDENT){
+                trigger_parser_err(p, "Struct visit '.' needs a name!");
+            }
+            int r = struct_offset(p, left.prot, name,&sub);
+            if(r == -1){
+                trigger_parser_err(p, "Fail to find a member with this name!");
+            }
+
+            // we ignore 0 offset here
+            if(r){
+                emit_add_rbx(p->m, r);
+            }
+            left.prot = sub.type;
+            left.type = sub.builtin;
+            left.ptr_depth = sub.ptr_depth;
+            
+        }else if(lexer_skip(p->l, '[')){
+            // if(!parent.ptr_depth){
+            //     trigger_parser_err(p, "'[' can only be applied to a pointer");
+            // }
+            
+            // offset=0;
+            // emit_mov_addr2r(p->m, REG_AX, REG_BX);
+            // array_visit(p, &parent,1);
+            // while(lexer_skip(p->l, ']')){
+            //     emit_mov_addr2r(p->m, REG_AX, REG_BX);
+            //     array_visit(p, &parent,1);
+            // }
+            // *inf = parent;
+            trigger_parser_err(p, "Array visit not realized!");
+        }else if(lexer_skip(p->l, '(')){
+            func_call(p, &left);
+            emit_mov_r2r(p->m, REG_BX, REG_AX);
+            //parent.type = TP_U64;
+            need_load = 0;
+        }else {
+           break;
+        }
+    }
+    *inf = left;
+    if(lexer_skip(p->l, '=')){
+            // possible assignment:
+            lexer_next(p->l);lexer_next(p->l);
+            assignment(p, inf);
+    }
+    else if(need_load && !ptr_only){
+        if(inf->type == TP_CUSTOM && inf->ptr_depth == 0){
+            trigger_parser_err(p, "Cannot load a structure!");
+        }
+        load_b2a(p, inf->ptr_depth?TP_U64:inf->type);
+    }
+
+    return 0;
 }
 
 void expr_muldiv(parser_t *p,var_t *inf){
     var_t left,right;
-    expr_prim(p,&left,FALSE);
+    expr_base(p,&left,0);
     bool mul=0,div=0,mod=0;
     while ((mul = lexer_skip(p->l, '*'))||
             (div = lexer_skip(p->l, '/'))||
@@ -437,7 +421,7 @@ void expr_muldiv(parser_t *p,var_t *inf){
         emit_pushrax(p->m); // push rax
         lexer_next(p->l); //skip operand
         lexer_next(p->l);
-        expr_prim(p,&right,FALSE);
+        expr_base(p,&right,0);
         if(left.type == TP_FLOAT || right.type == TP_FLOAT){
             trigger_parser_err(p, "Float operation is not supported");
         }
