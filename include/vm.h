@@ -7,7 +7,7 @@
 #include <sys/types.h>
 enum{
     TP_I8,TP_U8,TP_I16,TP_U16,TP_I32,TP_U32,TP_I64,TP_U64,TP_INTEGER,
-    TP_FLOAT,TP_FUNC,TP_CUSTOM,TP_LIB
+    TP_FLOAT,TP_FUNC,TP_CUSTOM,TP_RELOC
 };
 
 enum{
@@ -15,6 +15,11 @@ enum{
     REG_R9,REG_R10,REG_R11,REG_R12,REG_R13,REG_R14,REG_R15
 };
 
+#define STRTABLE_MASK (u64)(0x8000000000000000)
+#define DATA_MASK     (u64)(0x4000000000000000)
+#define REL_CODE_MASK (u64)(0x2000000000000000)
+#define CODE_MASK     (u64)(0xF000000000000000)
+#define EXTERN_MASK   (u32)0x80000000
 typedef struct{
     u32 len;
     char *ptr;
@@ -58,9 +63,10 @@ typedef struct{
 
     vec_t reloc_table;
     vec_t str_table;
-    vec_t heap;
 
-    int stack;
+    u64 data;
+    u64 stack;
+    u64 alloc_data;
     bool is_native;
 }module_t;
 
@@ -78,11 +84,6 @@ typedef struct{
 
 extern hashmap_t glo_libs;
 
-void module_liblist_init();
-
-void *module_liblist_get(char* name,int len);
-
-void module_liblist_add(module_t*mod);
 
 void module_init(module_t *v, vm_string_t name);
 
@@ -94,7 +95,7 @@ void module_add_var(module_t* m,var_t *v,vm_string_t name);
 
 void* module_add_string(module_t *m,vm_string_t str);
 
-void module_add_reloc(module_t *m, u64 addr);
+void module_add_reloc(module_t *m, u32 addr);
 
 var_t* var_new_base(char type,u64 v,int ptr,bool isglo,proto_t *prot);
 
@@ -103,6 +104,8 @@ proto_t* proto_new(int base_len);
 function_frame_t *function_new(u64 ptr);
 
 void proto_debug(proto_t *type);
+
+u64 reserv_data(module_t *v,u32 size);
 
 proto_sub_t* subproto_new(int offset,char builtin,proto_t*prot,int ptrdepth);
 
@@ -113,6 +116,10 @@ u64* jit_top(module_t *v);
 u64 *jit_restore_off(module_t *v,int off);
 
 void module_clean_stack_sym(module_t *v);
+
+void module_clean_proto(module_t *v);
+
+void module_clean_glo_sym(module_t *v);
 
 void module_add_stack_sym(module_t *v,hashmap_t *next);
 
@@ -144,7 +151,7 @@ void emit_saversp(module_t *v);
 
 void emit_restorersp(module_t *v);
 
-void emit_loadglo(module_t *v, u64 base_addr,bool isrbx);
+void emit_loadglo(module_t *v, u64 base_addr,bool isrbx, bool is_undef);
 
 void emit_poprax(module_t*v);
 
@@ -172,10 +179,10 @@ u64 emit_label_load(module_t* v,bool isrbx);
 
 void proto_impl(module_t *p, proto_t *type);
 
-void* string_new(module_t*v,char *str);
-
 void glo_sym_debug(hashmap_t *map);
 
 void stack_debug(hashmap_t *map);
+
+void module_release(module_t *entry);
 
 #endif

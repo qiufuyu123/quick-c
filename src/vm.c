@@ -1,8 +1,6 @@
 #include "vm.h"
 #include "define.h"
 #include "hashmap.h"
-#include "lib/array.h"
-#include "lib/console.h"
 #include "vec.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,30 +8,10 @@
 #include <sys/mman.h>
 #include <sys/types.h>
 
-hashmap_t glo_libs;
 
 void panic_oom(const char *msg){
     printf("VM: %s: OOM\n",msg);
     exit(1);
-}
-
-void module_liblist_init(){
-    hashmap_create(2, &glo_libs);
-    //load native methods
-    module_t *native = calloc(1, sizeof(module_t));
-    native->is_native = 1;
-    module_init(native, CSTR2VMSTR("libqc/vm/native"));
-    qc_lib_console(native);
-    qc_lib_array(native);
-    module_liblist_add(native);
-}
-
-void *module_liblist_get(char* name,int len){
-    return hashmap_get(&glo_libs, name, len);
-}
-
-void module_liblist_add(module_t*mod){
-    hashmap_put(&glo_libs, mod->name.ptr, mod->name.len, mod);
 }
 
 void module_pack_jit(module_t*v){
@@ -51,9 +29,8 @@ void module_pack_jit(module_t*v){
 
 void module_init(module_t *v, vm_string_t name){
     v->name = name;
-    vec_init(&v->heap, 1, 64);
     vec_init(&v->str_table, 1, 64);
-    vec_init(&v->reloc_table, sizeof(u64), 2);
+    vec_init(&v->reloc_table, sizeof(u32), 2);
     if(hashmap_create(2, &v->sym_table)){
         panic_oom("Fail to alloc sym_table");
     }
@@ -63,6 +40,7 @@ void module_init(module_t *v, vm_string_t name){
     if(hashmap_create(2, &v->prototypes)){
         panic_oom("Fail to alloc prototypes");
     }
+    v->data = DATA_MASK;
     v->stack = 0;
     module_pack_jit(v);
 }
@@ -77,12 +55,12 @@ void module_add_var(module_t* m,var_t *v,vm_string_t name){
 
 void* module_add_string(module_t *m,vm_string_t str){
     vec_push_n(&m->str_table, &str.len, 4);
-    void *ret = (char*)vec_top(&m->str_table)+1;
+    void *ret = (char*)vec_top(&m->str_table)+1-(u64)m->str_table.data;
     vec_push_n(&m->str_table,str.ptr, str.len);
     return ret;
 }
 
-void module_add_reloc(module_t *m, u64 addr){
+void module_add_reloc(module_t *m, u32 addr){
     vec_push(&m->reloc_table, &addr);
 }
 
@@ -129,15 +107,46 @@ void module_add_stack_sym(module_t *v,hashmap_t *next){
     hashmap_iterate_pairs(next, _iter_sym, &v->local_sym_table);
 }
 
-int _iter_destroy(void *const context,struct hashmap_element_s* const e){
+int _iter_destroy_subproto(void *const context,struct hashmap_element_s* const e){
     free(e->data);
-    return 0;
+    return -1;
+}
+
+int _iter_destroy_proto(void *const context,struct hashmap_element_s* const e){
+    proto_t *prot = (var_t*)e->data;
+    hashmap_iterate_pairs(&prot->subs, _iter_destroy_subproto, 0);
+    hashmap_destroy(&prot->subs);
+    free(prot);
+    return -1;
+}
+
+int _iter_destroy(void *const context,struct hashmap_element_s* const e){
+    var_t *nv = (var_t*)e->data;
+    if(nv->type == TP_FUNC){
+        function_frame_t *fram = (function_frame_t*)nv->base_addr;
+        if(fram){
+            // hashmap_iterate_pairs(&fram->arg_table, _iter_destroy, 0);
+            hashmap_destroy(&fram->arg_table);
+            free(fram);
+        }
+    }
+    free(nv);
+    return -1;
+}
+
+void module_clean_proto(module_t *v){
+    hashmap_iterate_pairs(&v->prototypes, _iter_destroy_proto, 0);
 }
 
 void module_clean_stack_sym(module_t *v){
     hashmap_iterate_pairs(&v->local_sym_table, _iter_destroy, 0);
-    hashmap_destroy(&v->local_sym_table);
-    hashmap_create(2, &v->local_sym_table);
+    // hashmap_destroy(&v->local_sym_table);
+    // hashmap_create(2, &v->local_sym_table);
+}
+
+void module_clean_glo_sym(module_t *v){
+    hashmap_iterate_pairs(&v->sym_table, _iter_destroy, 0);
+    // hashmap_destroy(&v->local_sym_table);
 }
 
 int _debug_prot(void* const context, struct hashmap_element_s* const e) {
@@ -160,6 +169,12 @@ void proto_debug(proto_t *type){
     printf("Prototype:%d\n",type->subs.size);
     hashmap_iterate_pairs(&type->subs, _debug_prot, NULL);
     printf("Prototype End(%d bytes)\n",type->len);
+}
+
+u64 reserv_data(module_t *v,u32 sz){
+    u64 addr = v->data;
+    v->data += sz;
+    return addr;
 }
 
 typedef struct{
@@ -225,6 +240,9 @@ proto_sub_t* subproto_new(int offset,char builtin,proto_t*prot,int ptrdepth){
 }
 
 void emit(module_t *v,char op){
+    if(v->jit_cur+1 >= v->jit_compiled_len){
+        panic_oom("JIT OOM");
+    }
     *(v->jit_compiled+v->jit_cur)=op;
     v->jit_cur++;
 }
@@ -234,6 +252,9 @@ u64* jit_top(module_t *v){
 }
 
 void emit_data(module_t*v,char w,void* data){
+    if(v->jit_cur+w >= v->jit_compiled_len){
+        panic_oom("JIT OOM");
+    }
     memcpy(v->jit_compiled+v->jit_cur, data, w);
     v->jit_cur+=w;
 }
@@ -322,10 +343,11 @@ void emit_restorersp(module_t *v){
     emit(v,0x5c);
 }
 
-void emit_loadglo(module_t *v, u64 base_addr,bool isrbx){
+void emit_loadglo(module_t *v, u64 base_addr,bool isrbx,bool is_undef){
     u64*ptr =(u64*)emit_label_load(v,isrbx);
     *ptr = base_addr;
-    module_add_reloc(v, (u64)ptr);
+    u32 val = (u64)ptr - (u64)v->jit_compiled;
+    module_add_reloc(v, is_undef?val|EXTERN_MASK:val);
 }
 
 void emit_param_4(module_t *v,u64 a,u64 b,u64 c,u64 d){
@@ -486,6 +508,16 @@ u64 emit_label_load(module_t* v,bool isrbx){
     return ret;
 }
 
-void* string_new(module_t*v,char *str){
-    return vec_push_n(&v->heap, str, strlen(str)+1);
+void module_release(module_t *entry){
+    module_clean_glo_sym(entry);
+    module_clean_proto(entry);
+    hashmap_destroy(&entry->sym_table);
+    hashmap_destroy(&entry->local_sym_table);
+    hashmap_destroy(&entry->prototypes);
+    vec_release(&entry->reloc_table);
+    vec_release(&entry->str_table);
+    if(entry->alloc_data){
+        free((void*)entry->alloc_data);
+    }
+    free(entry);
 }

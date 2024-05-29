@@ -1,6 +1,7 @@
 #ifndef _H_PARSER
 #define _H_PARSER
 
+#include "define.h"
 #include "hashmap.h"
 #include "lex.h"
 #include "vm.h"
@@ -8,6 +9,7 @@
 typedef struct{
     module_t *m;
     Lexer_t *l;
+    u64 loop_reloc;
     bool isglo;
 }parser_t;
 
@@ -28,6 +30,16 @@ enum op_priority
     
 };
 
+typedef struct{
+    int src_start;
+    int src_num;
+    char *dst;
+    u64 code_base;
+    bool need_obj;
+    bool reloc_table;
+    bool glo_sym_table;
+}flgs_t;
+
 #define VAR_EXIST_LOC (hashmap_get(&p->m->local_sym_table,&p->l->code[p->l->tk_now.start], p->l->tk_now.length))
 void* var_exist_glo(parser_t *p);
 
@@ -39,6 +51,6 @@ void assignment(parser_t *p,var_t *v);
 void trigger_parser_err(parser_t* p,const char *s,...);
 bool expr_base(parser_t *p,var_t *inf,bool needptr);
 
-module_t* module_compile(char *path,char *module_name, int name_len,bool is_module);
-char* module_pack(module_t *m,char *path);
+module_t* module_compile(char *path,char *module_name, int name_len,bool is_module,module_t *previous);
+int link_local(module_t *mod,u64 base_data, u64 base_code, u64 base_str);
 #endif

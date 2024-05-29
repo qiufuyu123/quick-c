@@ -1,0 +1,8 @@
+/*
+
+
+*/
+
+
+extern u8 printnum(u64 val,u8 len);
+extern u8 printstr(u8 *addr);

@@ -1,4 +1,4 @@
-import "libqc.vm.native"
+extern u8 printnum(u64 v,u8 len);
 struct subsub{
     u8 a;
     u8 b;
@@ -45,8 +45,8 @@ u8 test(){
     inside.e = &b;
     inside.eee = 0x2323232323232;
     inside.test_sub_ptr = &sub_inside;
-    native.console.print(inside.test_sub_ptr.m,5);
-    native.console.print(sub_inside.l.b,5);
+    printnum(inside.test_sub_ptr.m,5);
+    printnum(sub_inside.l.b,5);
     return 0;
 }
 test();

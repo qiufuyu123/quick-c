@@ -1,0 +1,8 @@
+struct LinkNode{
+    u64 this;
+    u64 next;
+};
+
+extern u8 LinkNodeInit(LinkNode* node,u64 val,u64 next);
+
+extern u8 LinkNodeAdd(LinkNode* parent, LinkNode* next);

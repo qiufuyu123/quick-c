@@ -1,5 +1,4 @@
-import "libqc.io"
-
+extern u8 printnum(u64 v,u8 len);
 
 u64 fib(u64 a){
     u64 b = 1;
@@ -9,5 +8,4 @@ u64 fib(u64 a){
     b = fib(a-1)+fib(a-2);
     return b;
 }
-io.println("233");
-io.printu8(fib(8));
+printnum(fib(8),1);

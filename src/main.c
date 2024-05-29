@@ -1,4 +1,5 @@
 #include "define.h"
+#include "hashmap.h"
 #include "lex.h"
 #include "vec.h"
 #include "vm.h"
@@ -6,25 +7,27 @@
 #include <bits/types/FILE.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
-typedef struct{
-    char *src;
-    char *dst;
-    bool need_obj;
-    bool reloc_table;
-    bool glo_sym_table;
-}flgs_t;
-
-static flgs_t glo_flag = {
-    0,"a.out",0,1,1
+flgs_t glo_flag = {
+    .src_start = 0,
+    .src_num   = 0,
+    .dst       = 0,
+    .code_base = 0,
+    .glo_sym_table = 0,
+    .reloc_table   = 0,
+    .need_obj      = 0
 };
 
 void check(int argc,char**argv){
     for (int i = 1; i<argc; i++) {
         if(argv[i][0] != '-'){
             if(!glo_flag.need_obj){
-                if(!glo_flag.src)
-                    glo_flag.src = argv[i];
+                if(glo_flag.src_start == 0){
+                    glo_flag.src_start = i;
+                    glo_flag.src_num = 0;
+                }
+                glo_flag.src_num++;
             }else {
                 if(!glo_flag.dst){
                     glo_flag.dst = argv[i];
@@ -36,41 +39,62 @@ void check(int argc,char**argv){
             else if(s == 's') glo_flag.glo_sym_table = 1;
             else if(s == 'o') glo_flag.need_obj = 1;
             else{
+                if(!strcmp(argv[i],"code")){
+                    if(argc <= i + 1){
+                        printf("Expect base_address after -code");
+                        exit(-1);
+                    }
+                    char *num = argv[i+1];
+                    glo_flag.code_base = atoll(num);
+                }
                 printf("Not supported switch:%s\n",argv[i]);
                 exit(-1);
             };
         }
     }
-    if(!glo_flag.src){
-        printf("WARN: No src inputed!\n");
-        glo_flag.src = "test/string.qc";
+    if(glo_flag.src_start == 0){
+        printf("ERRO: No src inputed!\n");
+        
     }
 }
 
+
+
 int main(int argc,char**argv){
     check(argc, argv);
-    module_liblist_init();
-    module_t *entry= module_compile(glo_flag.src, "main", 4, 0);
-    if(!entry){
-        printf("Fail to compile module:'main'\n");
-        return -1;
+    module_t *entry = 0;
+    for (int i = 0; i<glo_flag.src_num; i++) {
+        printf("Start Compile%s\n",argv[glo_flag.src_start + i]);
+        entry= module_compile(argv[glo_flag.src_start+i], "main", 4, 0,entry);
+        if(!entry){
+            printf("Fail to compile module:'main'\n");
+            return -1;
+        }
+        printf("Compile %s OK\n",argv[glo_flag.src_start + i]);
+    }
+    entry->alloc_data = 0;
+
+    if(link_local(entry) != 1){
+        exit(-1);
     }
     int(*start)() = entry->jit_compiled;
     if(glo_flag.glo_sym_table){
         glo_sym_debug(&entry->sym_table);
     }
-    if(glo_flag.reloc_table){
-        printf("Total Reloc Item:%d\n",entry->reloc_table.size);
-        for (int i = 0; i<entry->reloc_table.size; i++) {
-            printf("0x%llx;\n",*(u64*)vec_at(&entry->reloc_table, i));
-        }
-    }
+    // if(glo_flag.reloc_table){
+    //     printf("Total Reloc Item:%d\n",entry->reloc_table.size);
+    //     for (int i = 0; i<entry->reloc_table.size; i++) {
+    //         printf("0x%llx;\n",*(u64*)vec_at(&entry->reloc_table, i));
+    //     }
+    // }
     FILE *f = fopen("core.bin", "wc");
     fwrite(entry->jit_compiled, entry->jit_cur, 1, f);
     fclose(f);
-    printf("JIT returned:%d\n",start());
+    start();
+    printf("JIT returned: %dbytes / %d % \n",entry->jit_cur,entry->jit_cur*100/entry->jit_compiled_len);
     if(glo_flag.need_obj && glo_flag.dst){
-        module_pack(entry, glo_flag.dst);
+       // module_pack(entry, glo_flag.dst);
     }
+    module_release(entry);
     return 0;
 }

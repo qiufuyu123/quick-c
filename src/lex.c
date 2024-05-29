@@ -134,12 +134,12 @@ static token_t lex_ident(Lexer_t *lxr) {
 
 	// A list of reserved keywords and their corresponding token values
 	static char *keywords[] = {
-		 "if", "else", "elseif", "loop", "while", "for", "fn", "struct","import","impl","new","true",
+		 "if", "else", "elseif", "loop", "while", "for", "fn", "struct","import","impl","new","extern","break","true",
 		"false", "nil", "i8","u8","i16","u16","i32","u32",
         "i64","u64","return",NULL,
 	};
 	static Tk keyword_tks[] = {
-		 TK_IF, TK_ELSE, TK_ELSEIF, TK_LOOP, TK_WHILE, TK_FOR, TK_FN,TK_STRUCT,TK_IMPORT,TK_IMPL,TK_NEW,
+		 TK_IF, TK_ELSE, TK_ELSEIF, TK_LOOP, TK_WHILE, TK_FOR, TK_FN,TK_STRUCT,TK_IMPORT,TK_IMPL,TK_NEW,TK_EXTERN,TK_BREAK,
 		TK_TRUE, TK_FALSE, TK_NIL,TK_I8,TK_U8,TK_I16,TK_U16,TK_I32,TK_U32,TK_I64
         ,TK_U64,TK_RETURN
 	};
@@ -169,6 +169,10 @@ void lexer_init(Lexer_t *lex,char *path, char *code){
     lex->tk_now.type = 0;
 }
 
+void lexer_free(Lexer_t *lex){
+    free(lex->code);
+}
+
 #define MULTI_CHAR_TK(a,b,t)\
     case a:\
         if (lex->code[lex->cursor + 1] == b) { \
@@ -178,6 +182,22 @@ void lexer_init(Lexer_t *lex,char *path, char *code){
 			break;                                  \
 		}
 
+void lexer_match(Lexer_t *lex, Tk left, Tk right){
+    int depth = 0;
+    while (1) {
+        Tk tt = lexer_next(lex).type;
+        if(tt == left){
+            depth++;
+        }else if(tt == right){
+            depth--;
+            if(depth == 0){
+                break;
+            }
+        }else if(tt == TK_EOF){
+            trigger_lex_error(lex, "Fail to make a loop match:%c - %c\n",left,right);
+        }
+    }
+}
 
 token_t lexer_next(Lexer_t *lex){
     lex->tk_now.line = lex->line;
@@ -203,7 +223,21 @@ token_t lexer_next(Lexer_t *lex){
         while (lex->code[lex->cursor]) {
             if(lex->code[lex->cursor] == '\n'){
                 lex->cursor++;
+                lex->line++;
                 break;
+            }
+            lex->cursor++;
+        }
+        return lexer_next(lex);
+    }
+    if(c == '/' &&  lex->code[lex->cursor+1]=='*'){
+        lex->cursor+=2;
+        while (lex->code[lex->cursor]) {
+            if(lex->code[lex->cursor] == '*' && lex->code[lex->cursor+1] == '/'){
+                lex->cursor+=2;
+                break;
+            }else if(lex->code[lex->cursor] == '\n'){
+                lex->line++;
             }
             lex->cursor++;
         }
@@ -250,6 +284,12 @@ bool lexer_skip(Lexer_t *lex,Tk type){
     lex->line = old_col;
     lex->tk_now = tk_old;
     return r;
+}
+
+void lexer_skip_till(Lexer_t *lex, Tk stop){
+    while (!lexer_skip(lex, stop)) {
+        lexer_next(lex);
+    }
 }
 
 void lexer_debug(char *content){

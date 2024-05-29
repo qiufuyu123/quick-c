@@ -32,6 +32,7 @@
 #ifndef SHEREDOM_HASHMAP_H_INCLUDED
 #define SHEREDOM_HASHMAP_H_INCLUDED
 
+#include <stdio.h>
 #if defined(_MSC_VER)
 // Workaround a bug in the MSVC runtime where it uses __cplusplus when not
 // defined.
@@ -350,7 +351,9 @@ int hashmap_put(struct hashmap_s *const m, const void *const key,
 
   /* Set the data. */
   m->data[index].data = value;
-  m->data[index].key = key;
+  char *copy = calloc(1, len+1);
+  memcpy(copy,key,len);
+  m->data[index].key = copy;
   m->data[index].key_len = len;
 
   /* If the hashmap element was not already in use, set that it is being used
@@ -480,6 +483,7 @@ int hashmap_iterate_pairs(struct hashmap_s *const m,
       r = f(context, p);
       switch (r) {
       case -1: /* remove item */
+        free(p->key);
         memset(p, 0, sizeof(struct hashmap_element_s));
         m->size--;
         break;
@@ -494,6 +498,15 @@ int hashmap_iterate_pairs(struct hashmap_s *const m,
 }
 
 void hashmap_destroy(struct hashmap_s *const m) {
+  struct hashmap_element_s *p;
+  for (int i = 0; i < (hashmap_capacity(m) + HASHMAP_LINEAR_PROBE_LENGTH); i++) {
+    p = &m->data[i];
+    if (p->in_use) {
+      
+      printf("Free map element:%s\n",p->key);
+      free((void*)p->key);
+    }
+  }
   free(m->data);
   memset(m, 0, sizeof(struct hashmap_s));
 }

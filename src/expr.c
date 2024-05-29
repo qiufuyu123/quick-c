@@ -4,23 +4,13 @@
 #include "parser.h"
 #include "vec.h"
 #include "vm.h"
+#include <stdio.h>
+
+extern u64 debuglibs[2];
+
 
 void* var_exist_glo(parser_t *p){
     var_t *ret = hashmap_get(&p->m->sym_table,&p->l->code[p->l->tk_now.start], p->l->tk_now.length);
-    if(!ret){
-        return ret;
-    }
-    if(ret->type == TP_LIB){
-        while (ret->type == TP_LIB) {
-            lexer_expect(p->l, '.');
-            if(lexer_next(p->l).type != TK_IDENT){
-                trigger_parser_err(p, "Need an identity");
-            }
-            ret = hashmap_get((hashmap_t*)ret->base_addr,&p->l->code[p->l->tk_now.start], p->l->tk_now.length);
-            if(!ret)
-                return 0;
-        }
-    }
     return ret;
 }
 
@@ -110,7 +100,7 @@ void prep_assign(parser_t *p,var_t *v){
     if(v->type == TP_CUSTOM && v->ptr_depth == 0)
         trigger_parser_err(p, "Struct is not supported");
     if(v->isglo){
-        emit_loadglo(p->m, v->base_addr,1);
+        emit_loadglo(p->m, v->base_addr == 0?(u64)&v->base_addr:v->base_addr,1,v->base_addr == 0);
     }
     else{
         emit_mov_r2r(p->m, REG_BX, REG_BP);
@@ -162,6 +152,7 @@ void array_visit(parser_t*p,var_t *inf,bool leftval){
         trigger_parser_err(p, "'[' must be applied on a pointer!");
     }
     lexer_expect(p->l,'[');
+    // emit(p->m, 0x53); // push rbx
     emit_pushrax(p->m);
     var_t left;
     lexer_next(p->l);
@@ -171,10 +162,9 @@ void array_visit(parser_t*p,var_t *inf,bool leftval){
     emit_mulrbx(p->m);
     emit_mov_r2r(p->m, REG_BX, REG_AX);
     emit_poprax(p->m);
-    emit_addr2r(p->m, REG_BX, REG_AX);
+    emit_addr2r(p->m, REG_AX, REG_BX);
     inf->ptr_depth--;
-    if(!leftval)
-        load_b2a(p, inf->ptr_depth?TP_U64:inf->type);
+
 }
 
 
@@ -202,9 +192,16 @@ void expr_ident(parser_t* p, var_t *inf){
     if(parent.isglo){
         if(parent.type == TP_FUNC){
             function_frame_t *fram = (function_frame_t*)parent.base_addr;
-            emit_loadglo(p->m, fram->ptr,0);
+            if(fram->ptr == 0){
+                // extern sym
+                printf("Load extern sym!\n");
+                emit_loadglo(p->m, (u64)(t), 0,1);
+            }
+            else if((u64)fram->ptr >= (u64)p->m->jit_compiled && (u64)fram->ptr < (u64)p->m->jit_compiled + p->m->jit_compiled_len){
+                emit_loadglo(p->m, (u64)fram->ptr - (u64)p->m->jit_compiled,0,0);
+            }
         }
-        else emit_loadglo(p->m, parent.base_addr,1);
+        else emit_loadglo(p->m, parent.base_addr == 0?((u64)t):parent.base_addr,1,parent.base_addr == 0);
     }else{
         emit_mov_r2r(p->m, REG_BX, REG_BP);
         emit_sub_rbx(p->m, parent.base_addr);
@@ -255,8 +252,11 @@ bool expr_prim(parser_t* p,var_t *inf,bool left_val_only){
         p->l->cursor=i+1;
         u64 v = (u64)module_add_string(p->m, TKSTR2VMSTR(start, len));
         // emit_load(p->m, REG_AX, v);
-        // module_add_reloc(p->m, v);
-        *(u64*)emit_label_load(p->m, 0) = v;
+        
+        u64* addr = (u64*)emit_label_load(p->m, 0);
+        *addr = v | STRTABLE_MASK;
+        module_add_reloc(p->m, (u64)addr - (u64)p->m->jit_compiled);
+        printf("NEW str:%llx\n",v | STRTABLE_MASK);
         inf->ptr_depth = 1;
         inf->type = TP_U8;
         while(lexer_skip(p->l, '[')){
@@ -304,17 +304,17 @@ bool expr_prim(parser_t* p,var_t *inf,bool left_val_only){
         return 1;
         
     }else if(t == TK_NEW){
-        token_t name = lexer_next(p->l);
-        proto_t *type = hashmap_get(&p->m->prototypes, &p->l->code[name.start], name.length);
-        if(!type){
-            trigger_parser_err(p, "Struct does not exist!");
-        }
-        emit_load(p->m, REG_AX, (u64)vec_reserv(&p->m->heap, type->len));
-        proto_impl(p->m, type);
-        inf->type = TP_CUSTOM;
-        inf->prot = type;
-        inf->ptr_depth = 1;
-        return 1;
+        // token_t name = lexer_next(p->l);
+        // proto_t *type = hashmap_get(&p->m->prototypes, &p->l->code[name.start], name.length);
+        // if(!type){
+        //     trigger_parser_err(p, "Struct does not exist!");
+        // }
+        // emit_load(p->m, REG_AX, (u64)vec_reserv(&p->m->heap, type->len));
+        // proto_impl(p->m, type);
+        // inf->type = TP_CUSTOM;
+        // inf->prot = type;
+        // inf->ptr_depth = 1;
+        // return 1;
     }
     else{
         trigger_parser_err(p, "Unexpected token");
@@ -353,19 +353,20 @@ bool expr_base(parser_t *p,var_t *inf,bool ptr_only){
             left.ptr_depth = sub.ptr_depth;
             
         }else if(lexer_skip(p->l, '[')){
-            // if(!parent.ptr_depth){
-            //     trigger_parser_err(p, "'[' can only be applied to a pointer");
-            // }
+            if(!left.ptr_depth){
+                trigger_parser_err(p, "'[' can only be applied to a pointer");
+            }
             
             // offset=0;
-            // emit_mov_addr2r(p->m, REG_AX, REG_BX);
-            // array_visit(p, &parent,1);
+            emit_mov_r2r(p->m, REG_AX, REG_BX);
+            array_visit(p, &left,1);
+            emit_mov_r2r(p->m, REG_BX, REG_AX);
             // while(lexer_skip(p->l, ']')){
             //     emit_mov_addr2r(p->m, REG_AX, REG_BX);
             //     array_visit(p, &parent,1);
             // }
             // *inf = parent;
-            trigger_parser_err(p, "Array visit not realized!");
+            //trigger_parser_err(p, "Array visit not realized!");
         }else if(lexer_skip(p->l, '(')){
             func_call(p, &left);
             emit_mov_r2r(p->m, REG_BX, REG_AX);

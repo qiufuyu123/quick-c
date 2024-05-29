@@ -1,16 +1,21 @@
-import "libqc.io"
+
+extern u8 printnum(u64 v,u8 len);
+extern u8 printstr(u8 *str);
 u8 cnt=0;
 while(cnt<10){
-    io.println("bello!");
-    io.printu8(cnt);
+    printstr("bello!");
+    printnum(cnt,1);
     cnt=cnt+1;
 }
 
 u8 test(){
     u8 cnt2=0;
-    while(cnt2<10){
-        io.println("cello!");
-        io.printu8(cnt2,1);
+    while(1){
+        if(cnt2>=5){
+            break;
+        }
+        //printstr("cello!");
+        printnum(cnt2,1);
         cnt2=cnt2+1;
     }
     return 1;

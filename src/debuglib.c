@@ -35,7 +35,15 @@ void debug_int(u64 addr,u8 len){
     printf("\n");
 }
 
-u64 debuglibs[2] = {
-    (u64)&debug_int,
-    NULL
+void debug_printstr(u64 val){
+    char buf[100]={0};
+    u32 len = *(u32*)(val-4);
+    u8 *s = (u8*)val;
+    memcpy(buf, s, len);
+    printf("[debug libs]%s\n",buf);
+}
+
+native_func_t debuglibs[DBG_NUM] = {
+    { (u64)&debug_int,"printnum"},
+    {(u64)&debug_printstr,"printstr"}
 };

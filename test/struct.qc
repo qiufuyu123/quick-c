@@ -1,5 +1,5 @@
 u8 _debug_ = 1;
-import "libqc.io"
+extern u8 printnum(u64 v,u8 len);
 
 
 struct sub{
@@ -45,18 +45,18 @@ u16 test2(){
     inside.ccc = 2;
     inside.ddd = 3;
     inside.e = &e;
-    io.printu8(inside.bbb);
-    io.printu8(inside.ccc);
-    io.printu8(inside.ddd);
-    inside.e;
+    printnum(inside.bbb,0);
+    printnum(inside.ccc,0);
+    printnum(inside.ddd,0);
+    printnum(*inside.e,0);
     return inside.e;
 }
 test2();
 // [debug lib]: 999
 // [debug lib]: 888
-// [debug lib]: 5625ce05f891
-// [debug lib]: 5625ce05f899
-// [debug lib]: 5625ce05f899
+// [debug lib]: 557f810757a1
+// [debug lib]: 557f810757a9
+// [debug lib]: 557f810757a9
 // [debug lib]: 255
 // [debug lib]: 128
 // [debug lib]: 255
@@ -69,13 +69,16 @@ test2();
 // [debug lib]: 999
 // [debug lib]: 889
 // [debug lib]: 889
-// [debug lib]: 127
-// [debug lib]: 11
-// [debug lib]: 33
-// [debug lib]: 5625ce05f899
-// [debug lib]: 127
-// [debug lib]: 11
-// [debug lib]: 33
-// [debug lib]: 5625ce05f899
-// [debug lib]: 5625ce05f899
-// [debug lib]: 0
+// [debug lib]: 1
+// [debug lib]: 1
+// [debug lib]: 1
+// [debug lib]: 7f810757a9030201
+// [debug lib]: 1
+// [debug lib]: 10
+// [debug lib]: 2
+// [debug lib]: 10
+// [debug lib]: 3
+// [debug lib]: 10
+// [debug lib]: 123
+// [debug lib]: 10
+// [debug lib]: 22441
