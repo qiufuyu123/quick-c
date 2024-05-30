@@ -13,7 +13,8 @@ u8 main(){
     LinkNode node1;
     LinkNodeInit(&node1,123,2);
     printnum(node1.this,1);
-    return a+var+func2();
+    printnum(a+var+func2());
+    return 0;
 }
 u8 var = 3;
 extern u8 func2();
@@ -22,5 +23,3 @@ u8 func2(){
 }
 extern u8 var;
 extern u8 func2();
-
-printnum(main(),1);

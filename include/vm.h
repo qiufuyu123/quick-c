@@ -123,6 +123,8 @@ void module_clean_glo_sym(module_t *v);
 
 void module_add_stack_sym(module_t *v,hashmap_t *next);
 
+u64 module_get_func(module_t *v, char *name);
+
 void emit_data(module_t*v,char w,void* data);
 
 void emit_load(module_t*v,char r,u64 m);

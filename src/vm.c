@@ -186,7 +186,12 @@ int _sym_iter_call(void* const context,struct hashmap_element_s* const e){
     char buf[100]={0};
     memcpy(buf, e->key, e->key_len);
     var_t* addr = (var_t*)e->data;
-    printf("@%s: 0x%llx\n",buf,addr->base_addr);
+    printf("@%s: 0x%llx",buf,addr->base_addr);
+    if(addr->type == TP_FUNC){
+        function_frame_t* fram = (function_frame_t*)addr->base_addr;
+        printf("--%llx",fram->ptr);
+    }
+    printf("\n");
     return 0;
 }
 
@@ -227,6 +232,15 @@ void proto_impl(module_t *p, proto_t *type){
     parent.p = p;
     parent.offset = 0;
     hashmap_iterate_pairs(&type->subs, _prot_impl_call, &parent);
+}
+
+u64 module_get_func(module_t*v, char *name){
+    var_t *var = (var_t*)hashmap_get(&v->sym_table, name, strlen(name));
+    if(!var)
+        return 0;
+    if(var->type != TP_FUNC)
+        return 0;
+    return ((function_frame_t*)var->base_addr)->ptr;
 }
 
 proto_sub_t* subproto_new(int offset,char builtin,proto_t*prot,int ptrdepth){

@@ -17,6 +17,7 @@ int link_jit(module_t *mod){
         if(v){
             function_frame_t *func = (function_frame_t*)v->base_addr;
             func->ptr = (u64)debuglibs[i].addr;
+            printf("[debuglib:]%s-->%llx\n",debuglibs[i].name,func->ptr);
         }
     }
     u64 data_seg_used = mod->data - DATA_MASK;

@@ -4,7 +4,6 @@
 #include "vec.h"
 #include "vm.h"
 #include"parser.h"
-#include <bits/types/FILE.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,7 +15,8 @@ flgs_t glo_flag = {
     .code_base = 0,
     .glo_sym_table = 0,
     .reloc_table   = 0,
-    .need_obj      = 0
+    .need_obj      = 0,
+    .need_qlib     = 1
 };
 
 void check(int argc,char**argv){
@@ -39,16 +39,20 @@ void check(int argc,char**argv){
             else if(s == 's') glo_flag.glo_sym_table = 1;
             else if(s == 'o') glo_flag.need_obj = 1;
             else{
-                if(!strcmp(argv[i],"code")){
+                if(!strcmp(argv[i],"-code")){
                     if(argc <= i + 1){
                         printf("Expect base_address after -code");
                         exit(-1);
                     }
                     char *num = argv[i+1];
                     glo_flag.code_base = atoll(num);
+                }else if(!strcmp(argv[i], "-nostd")){
+                    glo_flag.need_qlib = 0;
+                }else {
+                    printf("Not supported switch:%s\n",argv[i]);
+                    exit(-1);
                 }
-                printf("Not supported switch:%s\n",argv[i]);
-                exit(-1);
+                
             };
         }
     }
@@ -73,14 +77,14 @@ int main(int argc,char**argv){
         printf("Compile %s OK\n",argv[glo_flag.src_start + i]);
     }
     entry->alloc_data = 0;
-
-    if(link_local(entry) != 1){
-        exit(-1);
-    }
-    int(*start)() = entry->jit_compiled;
     if(glo_flag.glo_sym_table){
         glo_sym_debug(&entry->sym_table);
     }
+    if(link_jit(entry) != 1){
+        exit(-1);
+    }
+    int(*start)() = entry->jit_compiled;
+    
     // if(glo_flag.reloc_table){
     //     printf("Total Reloc Item:%d\n",entry->reloc_table.size);
     //     for (int i = 0; i<entry->reloc_table.size; i++) {
@@ -90,7 +94,18 @@ int main(int argc,char**argv){
     FILE *f = fopen("core.bin", "wc");
     fwrite(entry->jit_compiled, entry->jit_cur, 1, f);
     fclose(f);
+
     start();
+    if(glo_flag.need_qlib){
+        u64 qlib_entry = module_get_func(entry, "_start_");
+        if(!qlib_entry){
+            printf("[ERRO]: Cannot find main-entry(qlibc) _start_\n");
+            exit(-1);
+        }
+        void (*qlib_main)() = (void*)qlib_entry;
+        qlib_main();
+    }
+    
     printf("JIT returned: %dbytes / %d % \n",entry->jit_cur,entry->jit_cur*100/entry->jit_compiled_len);
     if(glo_flag.need_obj && glo_flag.dst){
        // module_pack(entry, glo_flag.dst);

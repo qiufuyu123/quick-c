@@ -6,8 +6,6 @@
 #include "vm.h"
 #include "debuglib.h"
 
-
-#include <bits/types/FILE.h>
 #include <math.h>
 #include <setjmp.h>
 #include <stdio.h>
@@ -369,7 +367,7 @@ int expression(parser_t*p){
         //     emit_mov_addr2r(p->m, REG_AX, REG_AX);
         // }
         if(hashmap_get(&p->m->sym_table, "_debug_", 7)){
-            u64 addr = debuglibs[DBG_PRINT_INT];
+            u64 addr = debuglibs[DBG_PRINT_INT].addr;
             // load params
             //printf("will debug:%llx\n",inf.base_addr);
             if(!inf.isglo){
@@ -460,11 +458,19 @@ void stmt(parser_t *p){
         *els = (u64)jit_top(p->m);
         if(lexer_skip(p->l, TK_ELSE)){
             lexer_next(p->l);
-            lexer_expect(p->l, '{');
+            
             u64 *els_end = emit_jmp_flg(p->m);
             *els = (u64)jit_top(p->m);
-            stmt_loop(p);
-            lexer_next(p->l);
+            if(lexer_skip(p->l, TK_IF)){
+                // special case: else if{}
+                lexer_next(p->l);
+                stmt(p);
+            }
+            else{
+                lexer_expect(p->l, '{');
+                stmt_loop(p);
+                lexer_next(p->l);
+            }
             *els_end = (u64)jit_top(p->m);
         }
         return;
