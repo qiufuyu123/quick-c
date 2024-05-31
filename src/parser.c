@@ -87,7 +87,7 @@ int def_stmt(parser_t *p,int *ptr_depth,char *builtin,proto_t** proto,token_t *n
     return *ptr_depth?8:(**proto).len;
 }
 
-void stmt(parser_t *p);
+void stmt(parser_t *p,bool expect_end);
 
 int arg_decl(parser_t *p,int offset,hashmap_t *dst,char *btin,bool is_decl){
     int ptr_depth;
@@ -143,7 +143,7 @@ void restore_arg(parser_t *p,int no,int offset,char w){
 void stmt_loop(parser_t *p){
     while (!lexer_skip(p->l, '}')) {
             lexer_next(p->l);
-            stmt(p);
+            stmt(p,1);
     }
 }
 
@@ -394,7 +394,7 @@ int expression(parser_t*p){
 
 static char pwd_buf[100]={0};
 
-void stmt(parser_t *p){
+void stmt(parser_t *p,bool expect_end){
     Tk tt= p->l->tk_now.type;
     if(tt == TK_STRUCT){
         token_t tk = lexer_next(p->l);
@@ -453,25 +453,27 @@ void stmt(parser_t *p){
         emit(p->m, 0x75);emit(p->m,0x0c);  // jne +0x0c +
         u64* els = emit_jmp_flg(p->m);  // jmpq rax |
                                                        //        <-+
+        module_add_reloc(p->m, (u64)els - (u64)p->m->jit_compiled);
+
         stmt_loop(p);
         lexer_next(p->l);
-        *els = (u64)jit_top(p->m);
+        *els = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
         if(lexer_skip(p->l, TK_ELSE)){
             lexer_next(p->l);
             
             u64 *els_end = emit_jmp_flg(p->m);
-            *els = (u64)jit_top(p->m);
+            *els = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
             if(lexer_skip(p->l, TK_IF)){
                 // special case: else if{}
                 lexer_next(p->l);
-                stmt(p);
+                stmt(p,1);
             }
             else{
                 lexer_expect(p->l, '{');
                 stmt_loop(p);
                 lexer_next(p->l);
             }
-            *els_end = (u64)jit_top(p->m);
+            *els_end = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
         }
         return;
     }
@@ -497,16 +499,54 @@ void stmt(parser_t *p){
         emit(p->m, 0x75);emit(p->m,0x0c);  // je +0x0c +
         u64 break_adr = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
         u64* els = emit_jmp_flg(p->m);  // jmpq rax |
+        module_add_reloc(p->m, (u64)els - (u64)p->m->jit_compiled);
         u64 old_break = p->loop_reloc;
         p->loop_reloc = break_adr;
         stmt_loop(p);
         p->loop_reloc = old_break;
-        emit_load(p->m, REG_AX, top_adt);
-        emit(p->m, 0xff);emit(p->m, 0xe0);//jmp rax
+        u64 *loop_repeat = emit_jmp_flg(p->m);
+        module_add_reloc(p->m, (u64)loop_repeat - (u64)p->m->jit_compiled);
+        *loop_repeat = top_adt - (u64)p->m->jit_compiled;
         lexer_next(p->l);
-        *els = (u64)jit_top(p->m);
+        *els = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
         return;
-    }else if(tt == TK_IMPORT){
+    }else if(tt == TK_FOR){
+
+        lexer_expect(p->l, '(');   // (
+        lexer_next(p->l);               //  
+        stmt(p,1);                            //  stmt e.g: int a =1
+        lexer_next(p->l);
+        var_t inf;
+        u64 base = (u64)jit_top(p->m);
+        expr_root(p, &inf);
+        if(inf.type == TP_CUSTOM && inf.ptr_depth == 0)
+            trigger_parser_err(p, "Cannot compare!");
+        emit(p->m, 0x3c);emit(p->m,0x00); // cmp al,0
+        emit(p->m, 0x75);emit(p->m,0x0c);  // je +0x0c +
+        u64 break_adr = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
+        u64* end_for = emit_jmp_flg(p->m);
+        module_add_reloc(p->m, (u64)end_for - (u64)p->m->jit_compiled);
+        lexer_expect(p->l, ';');  // exit condition
+        Lexer_t old = *p->l;
+        lexer_skip_till(p->l, '{');   
+        lexer_expect(p->l, '{');   
+        u64 old_break = p->loop_reloc;
+        p->loop_reloc = break_adr;
+        stmt_loop(p);
+        lexer_next(p->l);
+        p->loop_reloc = old_break;
+        Lexer_t backup = *p->l;
+        *p->l = old;                 
+        lexer_next(p->l);
+        stmt(p,0);                            //increment...
+        *p->l = backup;
+        emit_load(p->m, REG_AX, base);
+        emit(p->m, 0xff);emit(p->m, 0xe0);//jmp rax
+        *end_for = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
+        // increment stmt
+        return;
+    }
+    else if(tt == TK_IMPORT){
         token_t name = lexer_next(p->l);
         if(name.type != '\"')
             trigger_parser_err(p, "Expect a string!");
@@ -548,12 +588,15 @@ void stmt(parser_t *p){
     }else if(tt == TK_EXTERN){
         lexer_next(p->l);
         var_def(p,1);
+    }else if(tt == ';'){
+        return;
     }
     else {
         if(expression(p))
             return;
     }
-    lexer_expect(p->l, ';');
+    if(expect_end)
+        lexer_expect(p->l, ';');
 }
 
 void parser_start(module_t *m,Lexer_t* lxr){
@@ -564,7 +607,7 @@ void parser_start(module_t *m,Lexer_t* lxr){
     p.isglo = TRUE;
     while (!lexer_skip(lxr, TK_EOF)) {
         lexer_next(lxr);
-        stmt(&p);
+        stmt(&p,1);
     }
     
     // int (*test)() = m->jit_compiled;
