@@ -78,7 +78,20 @@ int def_stmt(parser_t *p,int *ptr_depth,char *builtin,proto_t** proto,token_t *n
     while (lexer_next(p->l).type == '*') {
         (*ptr_depth)++;
     }
-    if(p->l->tk_now.type!=TK_IDENT){
+    token_t var_name = p->l->tk_now;
+    if(p->l->tk_now.type == '('){
+        lexer_expect(p->l, '*');
+        lexer_next(p->l);
+        var_name = p->l->tk_now;
+        lexer_expect(p->l, ')');
+        // we dont care how to declare func ptr
+        // the only purpose is to make my clangd highlight ide happy
+        // :)
+        lexer_skip_till(p->l, ';');
+        p->l->tk_now = var_name;
+        *ptr_depth = 1;
+    }
+    if(var_name.type!=TK_IDENT){
         trigger_parser_err(p, "An identity is needed after a type(%d)",p->l->tk_now.type);
     }
     if(*builtin != TP_CUSTOM){
