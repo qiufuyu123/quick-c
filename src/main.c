@@ -1,3 +1,4 @@
+#include "debuglib.h"
 #include "define.h"
 #include "hashmap.h"
 #include "lex.h"
@@ -102,8 +103,9 @@ int main(int argc,char**argv){
             printf("[ERRO]: Cannot find main-entry(qlibc) _start_\n");
             exit(-1);
         }
-        void (*qlib_main)() = (void*)qlib_entry;
-        qlib_main();
+        printf("called with:%llx\n",debuglibs);
+        void (*qlib_main)(native_func_t*list,u8 sz) = (void*)qlib_entry;
+        qlib_main(&debuglibs[0],2);
     }
     
     printf("JIT returned: %dbytes / %d % \n",entry->jit_cur,entry->jit_cur*100/entry->jit_compiled_len);

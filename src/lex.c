@@ -136,12 +136,12 @@ static token_t lex_ident(Lexer_t *lxr) {
 	static char *keywords[] = {
 		 "if", "else", "elseif", "loop", "while", "for", "fn", "struct","import","impl","new","extern","break","true",
 		"false", "nil", "i8","u8","i16","u16","i32","u32",
-        "i64","u64","return",NULL,
+        "i64","u64","return","enum",NULL,
 	};
 	static Tk keyword_tks[] = {
 		 TK_IF, TK_ELSE, TK_ELSEIF, TK_LOOP, TK_WHILE, TK_FOR, TK_FN,TK_STRUCT,TK_IMPORT,TK_IMPL,TK_NEW,TK_EXTERN,TK_BREAK,
 		TK_TRUE, TK_FALSE, TK_NIL,TK_I8,TK_U8,TK_I16,TK_U16,TK_I32,TK_U32,TK_I64
-        ,TK_U64,TK_RETURN
+        ,TK_U64,TK_RETURN,TK_ENUM
 	};
 
 	// Compare the identifier against reserved language keywords
@@ -279,7 +279,8 @@ bool lexer_skip(Lexer_t *lex,Tk type){
     int old_col = lex->line;
     token_t tk_old = lex->tk_now;
     int old = lex->cursor;
-    bool r = lexer_next(lex).type == type;
+    Tk ntk = lexer_next(lex).type;
+    bool r = ntk ==  type;
     lex->cursor = old;
     lex->line = old_col;
     lex->tk_now = tk_old;

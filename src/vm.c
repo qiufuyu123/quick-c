@@ -54,9 +54,12 @@ void module_add_var(module_t* m,var_t *v,vm_string_t name){
 }
 
 void* module_add_string(module_t *m,vm_string_t str){
-    vec_push_n(&m->str_table, &str.len, 4);
+    // not sure for the format of string
+    // vec_push_n(&m->str_table, &str.len, 4);
     void *ret = (char*)vec_top(&m->str_table)+1-(u64)m->str_table.data;
     vec_push_n(&m->str_table,str.ptr, str.len);
+    char terminate = '\0';
+    vec_push(&m->str_table, &terminate);
     return ret;
 }
 

@@ -1,0 +1,91 @@
+import "../../libqc/io.qh"
+
+i32 assert_eq(i32 a, i32 b)
+{
+    printnum(a,6);
+    printnum(b,6);
+    if (a != b) {
+        printstr("ASSERT!");
+        
+    }else{
+
+        printstr("[PASS]");
+    }
+    return 0;
+}
+
+i32 main()
+{
+    /* Value test */
+    i32 a;
+    i32 b;
+    i32 c;
+    i32 d = 5;
+    i32 e = 10;
+
+    assert_eq(d, 5);
+    assert_eq(e, 10);
+
+    a = 1;
+    a = a + 101;
+    assert_eq(a, 102);
+
+    a = 10;
+    a = a - 101;
+    assert_eq(a, -91);
+
+    a = 10;
+    a = a* 101;
+    assert_eq(a, 1010);
+
+    /* precedence test */
+    a = 1;
+    a = a+ 3 * 4;
+    assert_eq(a, 13);
+
+    a = 1;
+    a = a - 3 * 4;
+    assert_eq(a, -11);
+
+    a = 2;
+    a = a* 3 * 4;
+    assert_eq(a, 24);
+
+    a = 10;
+    a = a/ 5;
+    assert_eq(a, 2);
+
+    a = 4;
+    a = a % 3;
+    assert_eq(a, 1);
+
+//    a = 1;
+//    a <<= 2;
+//    assert_eq(a, 4);
+
+//    a = 4;
+//    a >>= 2;
+//    assert_eq(a, 1);
+
+    a = 17;
+    a = a | 14;
+    assert_eq(a, 31);
+
+    /* precedence test */
+    a = 0xff;
+    b = 1;
+    a = a ^( b | 2);
+    assert_eq(a, 0xfc);
+
+    a = 17;
+    a = a & 7;
+    assert_eq(a, 1);
+
+    /* comma operator tests */
+    
+
+//    c = (++a, ++b);
+//    assert_eq(c, 12);
+
+    return 0;
+}

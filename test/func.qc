@@ -1,4 +1,4 @@
-u8 _debug_ = 1;
+import "../libqc/io.qh"
 
 
 u8 f(u8 e,u8 g,u8 h){
@@ -23,12 +23,9 @@ u16 glo_val = 666;
 u16 *test(){
     return &glo_val;
 }
-u16 nil_call = f2(3,3,4)+f(0,0,0);
-nil_call;
-u16 get = *test();
-get;
-
-
+u16 v = f(3,3,4);
+printnum(v,2);
+printnum(f2(),2);
 
 //expect:
 // 3

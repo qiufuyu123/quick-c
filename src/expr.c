@@ -269,9 +269,9 @@ bool expr_prim(parser_t* p,var_t *inf,bool left_val_only){
         return inf->type == TP_FUNC;
     }else if(t == '('){
         lexer_next(p->l);
-        expr_root(p, inf);
+        bool r = expr_root(p, inf);
         lexer_expect(p->l, ')');
-        return 1;
+        return r;
     }else if(t == '&'){
         if(left_val_only){
             trigger_parser_err(p, "Pointer cannot be a left-value");
@@ -280,16 +280,20 @@ bool expr_prim(parser_t* p,var_t *inf,bool left_val_only){
         var_t left;
         expr_base(p, &left,1);
         emit_mov_r2r(p->m, REG_AX, REG_BX);
+        *inf = left;
         inf->ptr_depth++;
+        return 1;
     }else if(t == '*'){
         if(left_val_only)
             trigger_parser_err(p, "De-ptr cannot be a left val");
         lexer_next(p->l);
         var_t left;
         expr_base(p, &left,0);
+        printf("ptr depth:%d\n",left.ptr_depth);
         if(left.ptr_depth == 0){
             trigger_parser_err(p, "De-ptr must be operated on a pointer!");
         }
+        left.ptr_depth--;
         *inf = left;
         if(lexer_skip(p->l, '=')){
             lexer_next(p->l);lexer_next(p->l);
@@ -298,9 +302,13 @@ bool expr_prim(parser_t* p,var_t *inf,bool left_val_only){
                 emit_mov_r2r(p->m, REG_BX, REG_AX);
             assignment(p, &left);
             return 1;
+        }else {
+             //De-ptr
+            printf("deptr with %d ptr\n",left.ptr_depth);
+            emit_mov_r2r(p->m, REG_BX, REG_AX);
+            load_b2a(p, left.ptr_depth?TP_U64:left.type);
         }
-        //De-ptr
-        emit_mov_addr2r(p->m, REG_AX, REG_AX);
+       
         return 1;
         
     }else if(t == TK_NEW){
@@ -324,13 +332,14 @@ bool expr_prim(parser_t* p,var_t *inf,bool left_val_only){
 }
 
 bool expr_base(parser_t *p,var_t *inf,bool ptr_only){
-    var_t left;
+    var_t left = {0,0,0,0,0};
     bool need_load = 1;
-    bool is_const = expr_prim(p, &left, 0);
+    bool is_const = expr_prim(p, &left, ptr_only);
     while (1) {
         
         if(lexer_skip(p->l, '.') && left.type == TP_CUSTOM){
-            if(left.ptr_depth){
+            if(left.ptr_depth && !is_const){
+                // a left val must be de-ptr first
                 emit_mov_addr2r(p->m, REG_BX, REG_BX);
             }
             lexer_next(p->l);
@@ -351,14 +360,19 @@ bool expr_base(parser_t *p,var_t *inf,bool ptr_only){
             left.prot = sub.type;
             left.type = sub.builtin;
             left.ptr_depth = sub.ptr_depth;
-            
+            is_const = 0;
         }else if(lexer_skip(p->l, '[')){
             if(!left.ptr_depth){
                 trigger_parser_err(p, "'[' can only be applied to a pointer");
             }
             
             // offset=0;
-            emit_mov_r2r(p->m, REG_AX, REG_BX);
+            if(is_const){
+                emit_mov_r2r(p->m, REG_AX, REG_BX);
+            }else {
+                emit_mov_addr2r(p->m, REG_AX, REG_BX);
+            }
+            
             array_visit(p, &left,1);
             emit_mov_r2r(p->m, REG_BX, REG_AX);
             // while(lexer_skip(p->l, ']')){
@@ -372,6 +386,7 @@ bool expr_base(parser_t *p,var_t *inf,bool ptr_only){
             emit_mov_r2r(p->m, REG_BX, REG_AX);
             //parent.type = TP_U64;
             need_load = 0;
+            is_const = 1;
         }else {
            break;
         }
@@ -389,12 +404,12 @@ bool expr_base(parser_t *p,var_t *inf,bool ptr_only){
         load_b2a(p, inf->ptr_depth?TP_U64:inf->type);
     }
 
-    return 0;
+    return is_const;
 }
 
-void expr_muldiv(parser_t *p,var_t *inf){
+bool expr_muldiv(parser_t *p,var_t *inf){
     var_t left,right;
-    expr_base(p,&left,0);
+    bool right_val = expr_base(p,&left,0);
     bool mul=0,div=0,mod=0;
     while ((mul = lexer_skip(p->l, '*'))||
             (div = lexer_skip(p->l, '/'))||
@@ -418,13 +433,15 @@ void expr_muldiv(parser_t *p,var_t *inf){
             emit_divrbx(p->m);
             emit_mov_r2r(p->m, REG_AX, REG_DX);
         }
+        right_val = 1;
     }
     *inf = left;
+    return right_val;
 }
 
-void expr_addsub(parser_t *p,var_t*inf){
+bool expr_addsub(parser_t *p,var_t*inf){
     var_t left,right;
-    expr_muldiv(p,&left);
+    bool right_val = expr_muldiv(p,&left);
     bool add=0,sub=0;
     while ((add = lexer_skip(p->l, '+'))||
             (sub = lexer_skip(p->l, '-'))) {
@@ -442,13 +459,15 @@ void expr_addsub(parser_t *p,var_t*inf){
         }else{
             emit_minusr2r(p->m,REG_AX,REG_BX);
         }
+        right_val = 1;
     }
     *inf = left;
+    return right_val;
 }
 
-void expr_condi(parser_t *p,var_t*inf){
+bool expr_condi(parser_t *p,var_t*inf){
     var_t left,right;
-    expr_addsub(p,&left);
+    bool right_val = expr_addsub(p,&left);
     bool lt = 0, gt = 0, ne = 0, eql = 0, fle = 0;
     while ((lt = lexer_skip(p->l, '<'))||
             (gt = lexer_skip(p->l, '>'))||
@@ -475,11 +494,32 @@ void expr_condi(parser_t *p,var_t*inf){
                                          0x9d /* >= */);
         emit(p->m, 0xc0); // setX al
         emit(p->m, 0x48);emit(p->m, 0x0f);emit(p->m, 0xb6);emit(p->m, 0xc0); // mov %al,%rax
-        
+        right_val = 1;
     }
     *inf = left;
+    return right_val;
 }
 
-void expr_root(parser_t*p,var_t*inf){
-    expr_condi(p, inf);
+bool expr_root(parser_t*p,var_t*inf){
+    var_t left,right;
+    bool right_val = expr_condi(p, &left);
+    bool and = 0,or = 0,xor = 0;
+    while ((and = lexer_skip(p->l, '&'))||
+            (or = lexer_skip(p->l, '|'))||
+            (xor = lexer_skip(p->l, '^'))||
+            (and = lexer_skip(p->l, TK_AND))||
+            (or = lexer_skip(p->l, TK_OR))
+    ){
+        emit_pushrax(p->m);
+        lexer_next(p->l);lexer_next(p->l);
+        expr_condi(p, &right);
+        emit_mov_r2r(p->m, REG_BX, REG_AX);
+        emit_poprax(p->m);
+        emit(p->m, 0x48);
+        emit(p->m, and?0x21:or?0x09:0x31);
+        emit(p->m, 0xd8);
+        right_val = 1;
+    }
+    *inf = left;
+    return right_val;
 }

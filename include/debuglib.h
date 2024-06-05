@@ -12,7 +12,7 @@ enum debug_lib{
     DBG_NUM
 };
 
-typedef struct{
+typedef struct __attribute__((packed, aligned(1))) {
     u64 addr;
     char *name;
 }native_func_t;

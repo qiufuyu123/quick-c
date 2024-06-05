@@ -3,6 +3,7 @@
 #include "vm.h"
 
 #include <stdio.h>
+#include <string.h>
 
 void debug_int(u64 addr,u8 len){
     printf("[debug lib]: ");
@@ -36,11 +37,7 @@ void debug_int(u64 addr,u8 len){
 }
 
 void debug_printstr(u64 val){
-    char buf[100]={0};
-    u32 len = *(u32*)(val-4);
-    u8 *s = (u8*)val;
-    memcpy(buf, s, len);
-    printf("[debug libs]%s\n",buf);
+    printf("[debug libs]%s(%d)\n",(char*)val,strlen((char*)val));
 }
 
 native_func_t debuglibs[DBG_NUM] = {

@@ -433,7 +433,10 @@ void stmt(parser_t *p,bool expect_end){
             proto_debug(new_type);
         }
         
-    }else if(tt == TK_RETURN){
+    }else if(tt == TK_ENUM){
+        
+    }
+    else if(tt == TK_RETURN){
         if(p->isglo){
             trigger_parser_err(p, "Return must be used inside a function");
         }

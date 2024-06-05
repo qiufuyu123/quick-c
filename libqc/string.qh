@@ -1,0 +1,8 @@
+/*
+    libqc
+    string lib
+*/
+
+extern u32 strlen(u8 *str);
+
+extern i8 strcmp(u8 *str,u8 *str2);
