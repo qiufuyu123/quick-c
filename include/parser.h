@@ -9,6 +9,7 @@
 typedef struct{
     module_t *m;
     Lexer_t *l;
+    u8 caller_regs_used;
     u64 loop_reloc;
     bool isglo;
 }parser_t;

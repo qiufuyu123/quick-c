@@ -245,8 +245,10 @@ token_t lexer_next(Lexer_t *lex){
     }
     // symbols
     switch (c) {
-        MULTI_CHAR_TK('+', '=', TK_ADD_ASSIGN)
-        MULTI_CHAR_TK('-', '=', TK_SUB_ASSIGN)
+        MULTI_CHAR_TK('+', '+', TK_ADD2)
+        MULTI_CHAR_TK('-', '-', TK_MINUS2)
+        // MULTI_CHAR_TK('+', '=', TK_ADD_ASSIGN)
+        // MULTI_CHAR_TK('-', '=', TK_SUB_ASSIGN)
         MULTI_CHAR_TK('*', '=', TK_MUL_ASSIGN)
         MULTI_CHAR_TK('/', '=', TK_DIV_ASSIGN)
         MULTI_CHAR_TK('%', '=', TK_MOD_ASSIGN)

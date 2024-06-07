@@ -7,7 +7,7 @@
 #include <sys/types.h>
 enum{
     TP_I8,TP_U8,TP_I16,TP_U16,TP_I32,TP_U32,TP_I64,TP_U64,TP_INTEGER,
-    TP_FLOAT,TP_FUNC,TP_CUSTOM,TP_RELOC
+    TP_FLOAT,TP_FUNC,TP_CUSTOM,TP_RELOC,TP_UNK
 };
 
 enum{
@@ -93,7 +93,7 @@ void module_add_prototype(module_t *m,proto_t *t,vm_string_t name);
 
 void module_add_var(module_t* m,var_t *v,vm_string_t name);
 
-void* module_add_string(module_t *m,vm_string_t str);
+int module_add_string(module_t *m,vm_string_t str);
 
 void module_add_reloc(module_t *m, u32 addr);
 
@@ -186,5 +186,9 @@ void glo_sym_debug(hashmap_t *map);
 void stack_debug(hashmap_t *map);
 
 void module_release(module_t *entry);
+
+void backup_caller_reg(module_t *v,int no);
+
+void restore_caller_reg(module_t *v,int no);
 
 #endif

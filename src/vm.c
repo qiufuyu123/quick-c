@@ -1,13 +1,13 @@
 #include "vm.h"
 #include "define.h"
 #include "hashmap.h"
+#include "parser.h"
 #include "vec.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/types.h>
-
 
 void panic_oom(const char *msg){
     printf("VM: %s: OOM\n",msg);
@@ -53,13 +53,48 @@ void module_add_var(module_t* m,var_t *v,vm_string_t name){
     hashmap_put(&m->sym_table, name.ptr, name.len, v);
 }
 
-void* module_add_string(module_t *m,vm_string_t str){
+int module_add_string(module_t *m,vm_string_t str){
     // not sure for the format of string
     // vec_push_n(&m->str_table, &str.len, 4);
-    void *ret = (char*)vec_top(&m->str_table)+1-(u64)m->str_table.data;
-    vec_push_n(&m->str_table,str.ptr, str.len);
-    char terminate = '\0';
-    vec_push(&m->str_table, &terminate);
+    char buf[128] = {0}; // TODO
+    if(str.len > 127){
+        return -1;
+    }
+    int ret = (u64)vec_top(&m->str_table)+1-(u64)m->str_table.data;
+    memcpy(buf, str.ptr, str.len);
+    char *c = buf;
+    char dst = '\0';
+    while (*c) {
+        if(*c == '\\'){
+            c++;
+            if(*c == 0){
+                return -1;
+            }
+            switch (*c) {
+                case 'n':
+                    dst = '\n';
+                    break;
+                case 'b':
+                    dst = '\b';
+                    break;
+                case 't':
+                    dst = '\t';
+                    break;
+                case '0':
+                    dst = '\0';
+                    break;
+                default:
+                    return -1;
+            }
+            vec_push(&m->str_table,&dst);
+        }else {
+            vec_push(&m->str_table,c);
+        }
+
+        c++;
+    }
+    dst = '\0';
+    vec_push(&m->str_table, &dst); // terminate
     return ret;
 }
 
@@ -523,6 +558,30 @@ u64 emit_label_load(module_t* v,bool isrbx){
     u64 def = 0;
     emit_data(v, 8, &def);
     return ret;
+}
+
+void backup_caller_reg(module_t *v,int no){
+    emit(v, no == 1?0x57:
+            no == 2?0x56:
+            no == 3?0x52:
+            no == 4?0x51:0x41);
+    if(no == 5){
+        emit(v, 0x50); // r8
+    }else if(no == 6){
+        emit(v, 0x51); //r9
+    }
+}
+
+void restore_caller_reg(module_t *v,int no){
+    emit(v, no == 1?0x5f:
+            no == 2?0x5e:
+            no == 3?0x5a:
+            no == 4?0x59:0x41);
+    if(no == 5){
+        emit(v, 0x58); // r8
+    }else if(no == 6){
+        emit(v, 0x59); //r9
+    }
 }
 
 void module_release(module_t *entry){

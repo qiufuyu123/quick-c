@@ -95,7 +95,7 @@ int main(int argc,char**argv){
     FILE *f = fopen("core.bin", "wc");
     fwrite(entry->jit_compiled, entry->jit_cur, 1, f);
     fclose(f);
-
+    printf("RUN");
     start();
     if(glo_flag.need_qlib){
         u64 qlib_entry = module_get_func(entry, "_start_");

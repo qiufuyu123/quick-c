@@ -37,9 +37,14 @@ void load_b2a(parser_t*p, char type){
 
 }
 
+
+
 void prepare_calling(parser_t*p){
     var_t inf;
-    int no = 1;
+    int no = 1,old_no = p->caller_regs_used;
+    for (int i = 1; i<=p->caller_regs_used; i++) {
+        backup_caller_reg(p->m, i);
+    }
     while (!lexer_skip(p->l, ')')) {
         if(no == 1){
             emit_pushrax(p->m);
@@ -52,6 +57,9 @@ void prepare_calling(parser_t*p){
         }
         if(no >= 7)
             trigger_parser_err(p, "Too many arguments!");
+        if(no > p->caller_regs_used){
+            p->caller_regs_used = no;
+        }
         emit_mov_r2r(p->m, no == 1?REG_DI:
                                 no ==2?REG_SI:
                                 no ==3?REG_DX:
@@ -65,12 +73,20 @@ void prepare_calling(parser_t*p){
         }
         lexer_expect(p->l, ',');
     }
+
+    
+
+    lexer_next(p->l);
     if(no > 1){
         emit(p->m, 0x5b); // pop rbx
         emit_poprax(p->m);
     }
-
-    lexer_next(p->l);
+    emit(p->m, 0xff);emit(p->m,0xd0);
+    p->caller_regs_used = old_no;
+    for (int i = p->caller_regs_used; i>=1; i--) {
+        restore_caller_reg(p->m,i);
+    }
+    
 }
 
 void func_call(parser_t *p,var_t* inf){
@@ -81,7 +97,7 @@ void func_call(parser_t *p,var_t* inf){
         prepare_calling(p);
         // emit_mov_r2r(p->m, REG_AX, REG_BX);
         //                
-        emit(p->m, 0xff);emit(p->m,0xd0);
+        
         inf->ptr_depth = func->ret_type.ptr_depth;
         inf->type = func->ret_type.builtin;
         inf->prot = func->ret_type.type;
@@ -90,7 +106,6 @@ void func_call(parser_t *p,var_t* inf){
         // ax--> jump dst
         lexer_next(p->l);
         prepare_calling(p);
-        emit(p->m, 0xff);emit(p->m,0xd0); // callq [rax]
     }else {
         trigger_parser_err(p, "Cannot Call!");
     }
@@ -244,14 +259,16 @@ bool expr_prim(parser_t* p,var_t *inf,bool left_val_only){
         //string constant
         int i = p->l->cursor;
         int len = 0;
-        char end='\0';
         void* start =&p->l->code[i];
         while(p->l->code[i] != '\"'){
             i++;len++;
         }
         p->l->cursor=i+1;
-        u64 v = (u64)module_add_string(p->m, TKSTR2VMSTR(start, len));
+        int v = (u64)module_add_string(p->m, TKSTR2VMSTR(start, len));
         // emit_load(p->m, REG_AX, v);
+        if(v == -1){
+            trigger_parser_err(p, "Fail to parse string constant!");
+        }
         
         u64* addr = (u64*)emit_label_load(p->m, 0);
         *addr = v | STRTABLE_MASK;
@@ -266,6 +283,13 @@ bool expr_prim(parser_t* p,var_t *inf,bool left_val_only){
         
     }else if(t == TK_IDENT){
         expr_ident(p, inf);
+        if(lexer_skip(p->l, TK_ADD2) || lexer_skip(p->l, TK_MINUS2)){
+            token_t tt = lexer_next(p->l);
+            if(inf->type<TP_I8 || inf->type>TP_U64){
+                trigger_parser_err(p, "Fail to apply ++ to this identifier!");
+            }
+
+        }
         return inf->type == TP_FUNC;
     }else if(t == '('){
         lexer_next(p->l);
@@ -304,9 +328,14 @@ bool expr_prim(parser_t* p,var_t *inf,bool left_val_only){
             return 1;
         }else {
              //De-ptr
-            printf("deptr with %d ptr\n",left.ptr_depth);
-            emit_mov_r2r(p->m, REG_BX, REG_AX);
-            load_b2a(p, left.ptr_depth?TP_U64:left.type);
+            //printf("deptr with %d ptr\n",left.ptr_depth);
+            if(left.type >= TP_I64){
+                emit_mov_addr2r(p->m, REG_AX, REG_AX);
+            }else {
+                emit_mov_r2r(p->m, REG_BX, REG_AX);
+                load_b2a(p, left.ptr_depth?TP_U64:left.type);
+            }
+           
         }
        
         return 1;
@@ -333,7 +362,12 @@ bool expr_prim(parser_t* p,var_t *inf,bool left_val_only){
 
 bool expr_base(parser_t *p,var_t *inf,bool ptr_only){
     var_t left = {0,0,0,0,0};
-    bool need_load = 1;
+    bool need_load = 1, is_deptr = 0;
+    token_t now = p->l->tk_now;
+    if(now.type == '*'){
+        is_deptr = 1;
+        lexer_next(p->l);
+    }
     bool is_const = expr_prim(p, &left, ptr_only);
     while (1) {
         
@@ -391,13 +425,26 @@ bool expr_base(parser_t *p,var_t *inf,bool ptr_only){
            break;
         }
     }
+    if(is_deptr){
+        if(left.ptr_depth == 0){
+            trigger_parser_err(p, "De-ptr must be applied to a pointer.");
+        }
+    }
     *inf = left;
+    
+    if(is_deptr){
+        inf->ptr_depth --;
+        if(!is_const){
+            // if NOT is_const, RBX should be the address of a variable 
+            emit_mov_addr2r(p->m, REG_BX, REG_BX);
+        }
+    }
     if(lexer_skip(p->l, '=')){
             // possible assignment:
             lexer_next(p->l);lexer_next(p->l);
             assignment(p, inf);
     }
-    else if(need_load && !ptr_only && !is_const){
+    else if( (need_load && !ptr_only && !is_const) || (is_deptr)){
         if(inf->type == TP_CUSTOM && inf->ptr_depth == 0){
             trigger_parser_err(p, "Cannot load a structure!");
         }

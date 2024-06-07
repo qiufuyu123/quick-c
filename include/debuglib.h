@@ -9,6 +9,7 @@ enum debug_lib{
      // require 2 arge e.g. print(u64 addr,u8 len)
      // which len is 1,2,4 or 8
     DBG_PRINT_STR,
+    DBG_PRINTF,
     DBG_NUM
 };
 

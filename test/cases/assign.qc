@@ -2,14 +2,13 @@ import "../../libqc/io.qh"
 
 i32 assert_eq(i32 a, i32 b)
 {
-    printnum(a,6);
-    printnum(b,6);
+    printf("a:%d,b:%d\n",a,b);
     if (a != b) {
-        printstr("ASSERT!");
+        printf("ASSERT!\n");
         
     }else{
 
-        printstr("[PASS]");
+        printf("[PASS]\n");
     }
     return 0;
 }
@@ -17,11 +16,7 @@ i32 assert_eq(i32 a, i32 b)
 i32 main()
 {
     /* Value test */
-    i32 a;
-    i32 b;
-    i32 c;
-    i32 d = 5;
-    i32 e = 10;
+    i32 a,b,c,d=5,e=10;
 
     assert_eq(d, 5);
     assert_eq(e, 10);
