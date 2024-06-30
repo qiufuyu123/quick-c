@@ -201,7 +201,10 @@ HASHMAP_WEAK int hashmap_put(struct hashmap_s *const hashmap,
 HASHMAP_WEAK void *hashmap_get(const struct hashmap_s *const hashmap,
                                const void *const key,
                                const hashmap_uint32_t len);
-
+HASHMAP_WEAK char hashmap_exist(const struct hashmap_s *const hashmap,
+                               const void *const key,
+                               const hashmap_uint32_t len,
+                               void**data);
 /// @brief Remove an element from the hashmap.
 /// @param hashmap The hashmap to remove from.
 /// @param key The string key to use.
@@ -351,10 +354,13 @@ int hashmap_put(struct hashmap_s *const m, const void *const key,
 
   /* Set the data. */
   m->data[index].data = value;
-  char *copy = calloc(1, len+1);
-  memcpy(copy,key,len);
-  m->data[index].key = copy;
-  m->data[index].key_len = len;
+  if(!m->data[index].key){
+    char *copy = calloc(1, len+1);
+    memcpy(copy,key,len);
+    m->data[index].key = copy;
+    m->data[index].key_len = len;
+  }
+  
 
   /* If the hashmap element was not already in use, set that it is being used
    * and bump our size. */
@@ -365,6 +371,32 @@ int hashmap_put(struct hashmap_s *const m, const void *const key,
 
   return 0;
 }
+
+char hashmap_exist(const struct hashmap_s *const m, const void *const key,
+                  const hashmap_uint32_t len,void **data){
+    hashmap_uint32_t i, curr;
+
+  if ((HASHMAP_NULL == key) || (0 == len)) {
+    return HASHMAP_NULL;
+  }
+
+  curr = hashmap_hash_helper_int_helper(m, key, len);
+
+  /* Linear probing, if necessary */
+  for (i = 0; i < HASHMAP_LINEAR_PROBE_LENGTH; i++) {
+    const hashmap_uint32_t index = curr + i;
+
+    if (m->data[index].in_use) {
+      if (m->comparer(m->data[index].key, m->data[index].key_len, key, len)) {
+        *data =  m->data[index].data;
+        return 1;
+      }
+    }
+  }
+
+  /* Not found */
+  return HASHMAP_NULL;
+                  }
 
 void *hashmap_get(const struct hashmap_s *const m, const void *const key,
                   const hashmap_uint32_t len) {
@@ -503,7 +535,7 @@ void hashmap_destroy(struct hashmap_s *const m) {
     p = &m->data[i];
     if (p->in_use) {
       
-      printf("Free map element:%s\n",p->key);
+      //printf("Free map element:%s\n",p->key);
       free((void*)p->key);
     }
   }

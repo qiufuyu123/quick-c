@@ -43,5 +43,7 @@ void debug_printstr(u64 val){
 native_func_t debuglibs[DBG_NUM] = {
     { (u64)&debug_int,"printnum"},
     {(u64)&debug_printstr,"printstr"},
-    {(u64)printf,"printf"}
+    {(u64)printf,"printf"},
+    {(u64)calloc,"calloc"},
+    {(u64)free,"free"}
 };

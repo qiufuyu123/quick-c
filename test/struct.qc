@@ -2,19 +2,19 @@ u8 _debug_ = 1;
 extern u8 printnum(u64 v,u8 len);
 
 
-struct sub{
+typedef struct {
     u32 m;
     u32 n;
-};
+}sub;
 
-struct aaa{
+typedef struct {
     u8 bbb;
     u8 ccc;
     u8 ddd;
     i16 *e;
     sub test_sub;
     sub *test_sub_ptr;
-};
+}aaa;
 sub sub2;
 sub2.m  = 999;
 sub2.n = 888;
@@ -41,7 +41,7 @@ c.test_sub_ptr.n;
 
 u16 test2(){
     aaa inside;
-    inside.bbb = 1;
+    inside->bbb = 1;
     inside.ccc = 2;
     inside.ddd = 3;
     inside.e = &e;
@@ -49,6 +49,7 @@ u16 test2(){
     printnum(inside.ccc,0);
     printnum(inside.ddd,0);
     printnum(*inside.e,0);
+    printnum(e,0);
     return inside.e;
 }
 test2();

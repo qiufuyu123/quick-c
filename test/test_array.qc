@@ -1,4 +1,4 @@
-import "../libqc/io.qh"
+#include "../libqc/io.qh"
 u8 main(){
     u8 list1[10];
     u8* addr_list[10];

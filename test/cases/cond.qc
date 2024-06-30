@@ -1,4 +1,4 @@
-import "../../libqc/io.qh"
+#include "../../libqc/io.qh"
 
 u8 test(u8 a){
     if(a == 3){

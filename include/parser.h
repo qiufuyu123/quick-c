@@ -12,23 +12,20 @@ typedef struct{
     u8 caller_regs_used;
     u64 loop_reloc;
     bool isglo;
+    bool isend;
 }parser_t;
 
 enum op_priority
 {
-    LPP_ASSIGN = 10,
-    LPP_LOGIC_OR = 9,
-    LPP_LOGIC_AND = 9,
-    LPP_BIT_OR = 8,
-    LPP_BIT_XOR = 8,
-    LPP_BIT_AND = 8,
-    LPP_EQNEQ = 7,
-    LPP_COMP = 7,
-    LPP_BIT_SHIFT = 6,
-    LPP_ADD = 5,
-    LPP_MUL = 4,
-    LPP_IDENT = 3
-    
+
+    OPP_Assign, // operator =, keep Assign as highest priority operator
+    OPP_OrAssign, OPP_XorAssign, OPP_AndAssign, OPP_ShlAssign, OPP_ShrAssign, // |=, ^=, &=, <<=, >>=
+    OPP_AddAssign, OPP_SubAssign, OPP_MulAssign, OPP_DivAssign, OPP_ModAssign, // +=, -=, *=, /=, %=
+    OPP_Cond, // operator: ?
+    OPP_Lor, OPP_Lan, OPP_Or, OPP_Xor, OPP_And, // operator: ||, &&, |, ^, &
+    OPP_Eq, OPP_Ne, OPP_Lt, OPP_Gt, OPP_Le, OPP_Ge, // operator: ==, !=, <, >, <=, >=
+    OPP_Shl, OPP_Shr, OPP_Add, OPP_Sub, OPP_Mul, OPP_Div, OPP_Mod, // operator: <<, >>, +, -, *, /, %
+    OPP_LeftOnly, OPP_Inc, OPP_Dec, OPP_Dot, OPP_Arrow, OPP_Bracket, // operator: ++, --, ., ->, [
 };
 
 typedef struct{
@@ -45,13 +42,14 @@ typedef struct{
 #define VAR_EXIST_LOC (hashmap_get(&p->m->local_sym_table,&p->l->code[p->l->tk_now.start], p->l->tk_now.length))
 void* var_exist_glo(parser_t *p);
 
+
+int def_stmt(parser_t *p,int *ptr_depth,char *builtin,proto_t** proto,token_t *name,bool need_var_name);
 int var_get_base_len(char type);
-bool expr_root(parser_t*p,var_t*inf);
-bool expr_prim(parser_t*p,var_t*inf,bool leftval);
+bool expr(parser_t *p, var_t *inf,int ctx_priority);
 void prep_assign(parser_t *p,var_t *v);
 void assignment(parser_t *p,var_t *v);
 void trigger_parser_err(parser_t* p,const char *s,...);
-bool expr_base(parser_t *p,var_t *inf,bool needptr);
+//bool expr_base(parser_t *p,var_t *inf,bool needptr);
 
 module_t* module_compile(char *path,char *module_name, int name_len,bool is_module,module_t *previous);
 int link_local(module_t *mod,u64 base_data, u64 base_code, u64 base_str);

@@ -1,4 +1,4 @@
-import "libqc.io"
+#include "libqc.io"
 struct aaa{
     u8 c;
     u8 d;

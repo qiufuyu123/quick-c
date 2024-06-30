@@ -1,5 +1,6 @@
-import "../../libqc/io.qh"
-
+#include "../../libqc/def.qh"
+#include "../../libqc/io.qh"
+#define _IO_H
 i32 assert_eq(i32 a, i32 b)
 {
     printf("a:%d,b:%d\n",a,b);
@@ -76,11 +77,10 @@ i32 main()
     a = a & 7;
     assert_eq(a, 1);
 
-    /* comma operator tests */
-    
+    u8 base = 233;
+    u8 *ptr = &base;
 
-//    c = (++a, ++b);
-//    assert_eq(c, 12);
-
+    assert_eq((i32)(&ptr[3]),&ptr[5]-2);
+    printf("currentline:%d %d\n",_LINE_,_IO_H);
     return 0;
 }

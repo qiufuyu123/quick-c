@@ -1,4 +1,4 @@
-import "../libqc/io.qh"
+#include "../libqc/io.qh"
 u64 v;
 u8 main(){
     v =_libqc_func_list[1].addr;

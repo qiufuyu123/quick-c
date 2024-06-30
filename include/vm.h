@@ -80,6 +80,14 @@ typedef struct{
     int size;
 }function_frame_t;
 
+
+
+typedef struct{
+    u32 code_offset;
+    u8 type;
+
+}qlib_reloc_elem_t;
+
 #define BYTE_ALIGN(x,a) ( ((x) + ((a) - 1) ) & ( ~((a) - 1) ) )
 
 extern hashmap_t glo_libs;
@@ -148,7 +156,7 @@ void emit_mulrbx(module_t*v);
 void emit_divrbx(module_t*v);
 
 void emit_pushrax(module_t*v);
-
+void emit_pushrbx(module_t *v);
 void emit_saversp(module_t *v);
 
 void emit_restorersp(module_t *v);
@@ -156,6 +164,7 @@ void emit_restorersp(module_t *v);
 void emit_loadglo(module_t *v, u64 base_addr,bool isrbx, bool is_undef);
 
 void emit_poprax(module_t*v);
+void emit_poprbx(module_t*v);
 
 void emit_param_4(module_t *v,u64 a,u64 b,u64 c,u64 d);
 

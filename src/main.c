@@ -81,6 +81,8 @@ int main(int argc,char**argv){
     if(glo_flag.glo_sym_table){
         glo_sym_debug(&entry->sym_table);
     }
+    if(glo_flag.dst)
+        printf("%s\n",glo_flag.dst);
     if(link_jit(entry) != 1){
         exit(-1);
     }
@@ -113,5 +115,6 @@ int main(int argc,char**argv){
        // module_pack(entry, glo_flag.dst);
     }
     module_release(entry);
+    macro_free();
     return 0;
 }

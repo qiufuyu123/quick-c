@@ -51,7 +51,7 @@ void prepare_calling(parser_t*p){
             emit(p->m, 0x53); // push rbx
         }
         lexer_next(p->l);
-        expr_root(p, &inf);
+        expr(p, &inf,OPP_Assign);
         if(inf.type == TP_CUSTOM && inf.ptr_depth == 0){
             trigger_parser_err(p, "Cannot pass a structure as argument!");
         }
@@ -123,6 +123,30 @@ void prep_assign(parser_t *p,var_t *v){
     };
 }
 
+void assign_var(parser_t *p,var_t*v){
+    if(v->ptr_depth){
+        emit(p->m,0x48);emit(p->m, 0x89);emit(p->m, 0x03);
+        return;
+    }
+    if(v->type == TP_CUSTOM){
+        trigger_parser_err(p, "Unmatched type while assigning");
+    }
+    switch (v->type) {
+        case TP_I8: case TP_U8:
+            emit(p->m, 0x88);emit(p->m, 0x03);
+            break;
+        case TP_I16: case TP_U16:
+            emit(p->m, 0x66);emit(p->m, 0x89);emit(p->m, 0x03);
+            break;
+        case TP_I32: case TP_U32:
+            emit(p->m, 0x89);emit(p->m, 0x03);
+            break;
+        default:
+            emit(p->m,0x48);emit(p->m, 0x89);emit(p->m, 0x03);
+            break;
+    
+    }
+}
 
 void assignment(parser_t *p,var_t *v){
     if(v->type >= TP_INTEGER && v->type < TP_CUSTOM){
@@ -130,33 +154,12 @@ void assignment(parser_t *p,var_t *v){
     }
     var_t left;
     emit(p->m, 0x53); // push rbx
-    expr_root(p, &left);
+    expr(p, &left,OPP_Assign);
     emit(p->m, 0x5b); // pop rbx
     if(left.type != TP_CUSTOM || left.ptr_depth){
         // basic types --> already loaded into rax
-        
-        if(v->ptr_depth){
-            emit(p->m,0x48);emit(p->m, 0x89);emit(p->m, 0x03);
-            return;
-        }
-        if(v->type == TP_CUSTOM){
-            trigger_parser_err(p, "Unmatched type while assigning");
-        }
-        switch (v->type) {
-            case TP_I8: case TP_U8:
-                emit(p->m, 0x88);emit(p->m, 0x03);
-                break;
-            case TP_I16: case TP_U16:
-                emit(p->m, 0x66);emit(p->m, 0x89);emit(p->m, 0x03);
-                break;
-            case TP_I32: case TP_U32:
-                emit(p->m, 0x89);emit(p->m, 0x03);
-                break;
-            default:
-                emit(p->m,0x48);emit(p->m, 0x89);emit(p->m, 0x03);
-                break;
-        
-        }
+        assign_var(p, v);
+
     }else {
         trigger_parser_err(p, "struct assign not support!");
     }
@@ -166,18 +169,18 @@ void array_visit(parser_t*p,var_t *inf,bool leftval){
     if(!inf->ptr_depth){
         trigger_parser_err(p, "'[' must be applied on a pointer!");
     }
-    lexer_expect(p->l,'[');
-    // emit(p->m, 0x53); // push rbx
     emit_pushrax(p->m);
+    emit_pushrbx(p->m);
     var_t left;
     lexer_next(p->l);
-    expr_root(p, &left);
+    expr(p, &left,OPP_Assign);
     lexer_expect(p->l, ']');
     emit_load(p->m, REG_BX, inf->ptr_depth-1?8:inf->type==TP_CUSTOM?inf->prot->len:var_get_base_len(inf->type));
     emit_mulrbx(p->m);
-    emit_mov_r2r(p->m, REG_BX, REG_AX);
+    //emit_mov_r2r(p->m, REG_BX, REG_AX);
+    emit_poprbx(p->m);
+    emit_addr2r(p->m, REG_BX, REG_AX);
     emit_poprax(p->m);
-    emit_addr2r(p->m, REG_AX, REG_BX);
     inf->ptr_depth--;
 
 }
@@ -209,7 +212,7 @@ void expr_ident(parser_t* p, var_t *inf){
             function_frame_t *fram = (function_frame_t*)parent.base_addr;
             if(fram->ptr == 0){
                 // extern sym
-                printf("Load extern sym!\n");
+                //printf("Load extern sym!\n");
                 emit_loadglo(p->m, (u64)(t), 0,1);
             }
             else if((u64)fram->ptr >= (u64)p->m->jit_compiled && (u64)fram->ptr < (u64)p->m->jit_compiled + p->m->jit_compiled_len){
@@ -226,37 +229,80 @@ void expr_ident(parser_t* p, var_t *inf){
 }
 
 
-bool expr_prim(parser_t* p,var_t *inf,bool left_val_only){
-    Tk t = p->l->tk_now.type;
-    if(t == TK_INT){
-        if(left_val_only){
-            trigger_parser_err(p, "Number cannot be a left-value!");
+int token2opp(Tk type){
+    static int opp_map[23][2] ={
+        {'+',OPP_Add},
+        {'-',OPP_Sub},
+        {'*',OPP_Mul},
+        {'/',OPP_Div},
+        {'%',OPP_Mod},
+        {'=',OPP_Assign},
+        {'&',OPP_And},
+        {'|',OPP_Or},
+        {'^',OPP_Xor},
+        {TK_OR,OPP_Or},
+        {TK_AND,OPP_And},
+        {TK_EQ,OPP_Eq},
+        {TK_GE,OPP_Ge},
+        {TK_LE,OPP_Le},
+        {'>',OPP_Gt},
+        {'<',OPP_Lt},
+        {TK_NEQ,OPP_Ne},
+        {'.',OPP_Dot},
+        {'[',OPP_Bracket},
+        {TK_ADD2,OPP_Inc},
+        {TK_MINUS2,OPP_Dec},
+        {TK_LSHL,OPP_Shl},
+        {TK_LSHR,OPP_Shr}
+    };
+    for (int i = 0; i<23; i++) {
+        if(opp_map[i][0] == type){
+            return opp_map[i][1];
         }
-        emit_load(p->m, REG_AX, p->l->tk_now.integer);
-    }else if(t == '+'){
-        lexer_next(p->l);
-        return expr_base(p,inf,left_val_only);
-        
-    }else if(t == '-'){
-        lexer_next(p->l);
-        var_t left;
-        bool ret = expr_base(p,&left,left_val_only);
-        if (left.type < TP_INTEGER) {
-            
-            // rax --> Im
-            emit_load(p->m, REG_BX, 0);  // mov rbx,0
-            emit_minusr2r(p->m, REG_BX, REG_AX); //sub rbx,rax
-            emit_mov_r2r(p->m, REG_AX, REG_BX); //mov rax,rbx
+    }
+    return -1;
+}
 
-        }else{
-            trigger_parser_err(p, "'-' is only valid between numbers");
-        }
-        return ret;
-    }else if(t == '\"'){
-        if(left_val_only){
-            trigger_parser_err(p, "String cannot be a left-value");
-        }
-        //string constant
+bool is_numeric(parser_t *p,var_t left,var_t right){
+    if(left.ptr_depth || right.ptr_depth){
+        printf("WARN: Operating between pointers are dangerous!\n");
+    }
+    return (left.ptr_depth || left.type < TP_INTEGER) && (right.ptr_depth || right.type < TP_INTEGER);
+}
+
+void load_var(parser_t *p,var_t left){
+    if(left.type >= TP_I64 && left.type <= TP_U64){
+        emit_mov_addr2r(p->m, REG_AX, REG_BX);
+        // optimize
+    }else {
+        //emit_mov_r2r(p->m, REG_BX, REG_AX);
+        load_b2a(p, left.ptr_depth?TP_U64:left.type);
+    }
+}
+
+bool is_type(parser_t *p){
+    token_t name = p->l->tk_now;
+    if(name.type >= TK_I8 && name.type <= TK_U64)
+        return 1;
+    if(name.type != TK_IDENT){
+        return 0;
+    }
+    
+    if(hashmap_get(&p->m->prototypes, &p->l->code[name.start], name.length))
+        return 1;
+    return 0;
+}
+
+bool expr(parser_t *p, var_t *inf,int ctx_priority){
+    token_t token = p->l->tk_now;
+    Tk type = token.type;
+    var_t left = {0,0,0,0,0};
+    bool need_load = 0;
+    bool is_left_val = 0;
+    bool is_left_only = (ctx_priority == OPP_LeftOnly);
+    if(type == TK_INT){
+        emit_load(p->m, REG_AX, token.integer);
+    }else if(type == '"'){
         int i = p->l->cursor;
         int len = 0;
         void* start =&p->l->code[i];
@@ -273,300 +319,245 @@ bool expr_prim(parser_t* p,var_t *inf,bool left_val_only){
         u64* addr = (u64*)emit_label_load(p->m, 0);
         *addr = v | STRTABLE_MASK;
         module_add_reloc(p->m, (u64)addr - (u64)p->m->jit_compiled);
-        printf("NEW str:%llx\n",v | STRTABLE_MASK);
+        //printf("NEW str:%llx\n",v | STRTABLE_MASK);
         inf->ptr_depth = 1;
         inf->type = TP_U8;
-        while(lexer_skip(p->l, '[')){
-            array_visit(p, inf,0);
+    }else if(type == '+' ){
+        lexer_next(p->l);
+        expr(p, &left, OPP_Inc);
+    }else if(type == '-'){
+        lexer_next(p->l);
+        expr(p, &left, OPP_Inc);
+        if(left.type < TP_INTEGER){
+            // rax --> Im
+            emit_load(p->m, REG_BX, 0);  // mov rbx,0
+            emit_minusr2r(p->m, REG_BX, REG_AX); //sub rbx,rax
+            emit_mov_r2r(p->m, REG_AX, REG_BX); //mov rax,rbx
         }
-        return 1;
+    }else if(type == '&'){
+        lexer_next(p->l);
+        if(expr(p, &left, OPP_LeftOnly) == 0){
+            trigger_parser_err(p, "& operator must follow a left value!");
+        }
         
-    }else if(t == TK_IDENT){
-        expr_ident(p, inf);
-        if(lexer_skip(p->l, TK_ADD2) || lexer_skip(p->l, TK_MINUS2)){
-            token_t tt = lexer_next(p->l);
-            if(inf->type<TP_I8 || inf->type>TP_U64){
-                trigger_parser_err(p, "Fail to apply ++ to this identifier!");
-            }
-
-        }
-        return inf->type == TP_FUNC;
-    }else if(t == '('){
-        lexer_next(p->l);
-        bool r = expr_root(p, inf);
-        lexer_expect(p->l, ')');
-        return r;
-    }else if(t == '&'){
-        if(left_val_only){
-            trigger_parser_err(p, "Pointer cannot be a left-value");
-        }
-        lexer_next(p->l);
-        var_t left;
-        expr_base(p, &left,1);
+        left.ptr_depth++;
         emit_mov_r2r(p->m, REG_AX, REG_BX);
-        *inf = left;
-        inf->ptr_depth++;
-        return 1;
-    }else if(t == '*'){
-        if(left_val_only)
-            trigger_parser_err(p, "De-ptr cannot be a left val");
+
+    }else if(type == '*'){
         lexer_next(p->l);
-        var_t left;
-        expr_base(p, &left,0);
-        printf("ptr depth:%d\n",left.ptr_depth);
-        if(left.ptr_depth == 0){
-            trigger_parser_err(p, "De-ptr must be operated on a pointer!");
-        }
-        left.ptr_depth--;
-        *inf = left;
-        if(lexer_skip(p->l, '=')){
-            lexer_next(p->l);lexer_next(p->l);
-
-            if(left.isglo)
-                emit_mov_r2r(p->m, REG_BX, REG_AX);
-            assignment(p, &left);
-            return 1;
-        }else {
-             //De-ptr
-            //printf("deptr with %d ptr\n",left.ptr_depth);
-            if(left.type >= TP_I64){
-                emit_mov_addr2r(p->m, REG_AX, REG_AX);
-            }else {
-                emit_mov_r2r(p->m, REG_BX, REG_AX);
-                load_b2a(p, left.ptr_depth?TP_U64:left.type);
-            }
-           
-        }
-       
-        return 1;
-        
-    }else if(t == TK_NEW){
-        // token_t name = lexer_next(p->l);
-        // proto_t *type = hashmap_get(&p->m->prototypes, &p->l->code[name.start], name.length);
-        // if(!type){
-        //     trigger_parser_err(p, "Struct does not exist!");
-        // }
-        // emit_load(p->m, REG_AX, (u64)vec_reserv(&p->m->heap, type->len));
-        // proto_impl(p->m, type);
-        // inf->type = TP_CUSTOM;
-        // inf->prot = type;
-        // inf->ptr_depth = 1;
-        // return 1;
-    }
-    else{
-        trigger_parser_err(p, "Unexpected token");
-    }
-    inf->type = TP_U64;
-    return 1;
-}
-
-bool expr_base(parser_t *p,var_t *inf,bool ptr_only){
-    var_t left = {0,0,0,0,0};
-    bool need_load = 1, is_deptr = 0;
-    token_t now = p->l->tk_now;
-    if(now.type == '*'){
-        is_deptr = 1;
-        lexer_next(p->l);
-    }
-    bool is_const = expr_prim(p, &left, ptr_only);
-    while (1) {
-        
-        if(lexer_skip(p->l, '.') && left.type == TP_CUSTOM){
-            if(left.ptr_depth && !is_const){
-                // a left val must be de-ptr first
-                emit_mov_addr2r(p->m, REG_BX, REG_BX);
-            }
-            lexer_next(p->l);
-            token_t name = lexer_next(p->l);
-            proto_sub_t sub;
-            if(name.type != TK_IDENT){
-                trigger_parser_err(p, "Struct visit '.' needs a name!");
-            }
-            int r = struct_offset(p, left.prot, name,&sub);
-            if(r == -1){
-                trigger_parser_err(p, "Fail to find a member with this name!");
-            }
-
-            // we ignore 0 offset here
-            if(r){
-                emit_add_rbx(p->m, r);
-            }
-            left.prot = sub.type;
-            left.type = sub.builtin;
-            left.ptr_depth = sub.ptr_depth;
-            is_const = 0;
-        }else if(lexer_skip(p->l, '[')){
-            if(!left.ptr_depth){
-                trigger_parser_err(p, "'[' can only be applied to a pointer");
-            }
-            
-            // offset=0;
-            if(is_const){
-                emit_mov_r2r(p->m, REG_AX, REG_BX);
-            }else {
-                emit_mov_addr2r(p->m, REG_AX, REG_BX);
-            }
-            
-            array_visit(p, &left,1);
+        if(expr(p, &left, OPP_Inc)==0){
             emit_mov_r2r(p->m, REG_BX, REG_AX);
-            // while(lexer_skip(p->l, ']')){
-            //     emit_mov_addr2r(p->m, REG_AX, REG_BX);
-            //     array_visit(p, &parent,1);
-            // }
-            // *inf = parent;
-            //trigger_parser_err(p, "Array visit not realized!");
-        }else if(lexer_skip(p->l, '(')){
+        }
+        if(left.ptr_depth == 0){
+            trigger_parser_err(p, "* need a pointer!");
+        }
+        
+        //load_var(p, left); // - notice sequence of 2 lines
+        left.ptr_depth --; // -
+        need_load = 1;
+    }else if(type == TK_IDENT){
+        is_left_val = 1;
+        expr_ident(p, &left);
+        if(lexer_skip(p->l, '(')){
             func_call(p, &left);
             emit_mov_r2r(p->m, REG_BX, REG_AX);
-            //parent.type = TP_U64;
-            need_load = 0;
-            is_const = 1;
-        }else {
-           break;
-        }
-    }
-    if(is_deptr){
-        if(left.ptr_depth == 0){
-            trigger_parser_err(p, "De-ptr must be applied to a pointer.");
-        }
-    }
-    *inf = left;
-    
-    if(is_deptr){
-        inf->ptr_depth --;
-        if(!is_const){
-            // if NOT is_const, RBX should be the address of a variable 
+        }else if(lexer_skip(p->l, '[')){
             emit_mov_addr2r(p->m, REG_BX, REG_BX);
-        }
-    }
-    if(lexer_skip(p->l, '=')){
-            // possible assignment:
-            lexer_next(p->l);lexer_next(p->l);
-            assignment(p, inf);
-    }
-    else if( (need_load && !ptr_only && !is_const) || (is_deptr)){
-        if(inf->type == TP_CUSTOM && inf->ptr_depth == 0){
-            trigger_parser_err(p, "Cannot load a structure!");
-        }
-        load_b2a(p, inf->ptr_depth?TP_U64:inf->type);
-    }
-
-    return is_const;
-}
-
-bool expr_muldiv(parser_t *p,var_t *inf){
-    var_t left,right;
-    bool right_val = expr_base(p,&left,0);
-    bool mul=0,div=0,mod=0;
-    while ((mul = lexer_skip(p->l, '*'))||
-            (div = lexer_skip(p->l, '/'))||
-            (mod = lexer_skip(p->l, '%'))) {
-        emit_pushrax(p->m); // push rax
-        lexer_next(p->l); //skip operand
-        lexer_next(p->l);
-        expr_base(p,&right,0);
-        if(left.type == TP_FLOAT || right.type == TP_FLOAT){
-            trigger_parser_err(p, "Float operation is not supported");
-        }
-        
-        emit_mov_r2r(p->m, REG_BX, REG_AX);
-        emit_poprax(p->m);
-        if(mul){
-            emit_mulrbx(p->m);
-        }else if(div){
-            emit_divrbx(p->m);
+            lexer_next(p->l);
+            array_visit(p, &left, 0);
+            //left.ptr_depth--;
+            need_load = 1;
         }else {
-            emit_load(p->m, REG_DI, 0);
-            emit_divrbx(p->m);
-            emit_mov_r2r(p->m, REG_AX, REG_DX);
+            need_load = 1;
         }
-        right_val = 1;
-    }
-    *inf = left;
-    return right_val;
-}
-
-bool expr_addsub(parser_t *p,var_t*inf){
-    var_t left,right;
-    bool right_val = expr_muldiv(p,&left);
-    bool add=0,sub=0;
-    while ((add = lexer_skip(p->l, '+'))||
-            (sub = lexer_skip(p->l, '-'))) {
-        emit_pushrax(p->m); // push rax
-        lexer_next(p->l); //skip operand
+    }else if(type == '('){
         lexer_next(p->l);
-        expr_muldiv(p,&right);
-        if(left.type == TP_FLOAT || right.type == TP_FLOAT){
-            trigger_parser_err(p, "Float operation is not supported");
+        if(is_type(p)){
+            left.type = TP_UNK;
+            int ptr_dep = 0;
+            char builtin = TP_UNK;
+            proto_t *prot = NULL;
+            def_stmt(p, &ptr_dep, &builtin, &prot, 0, 0);
+            //lexer_expect(p->l, ')');
+            lexer_next(p->l);
+            expr(p, &left, OPP_Inc);
+            left.ptr_depth = ptr_dep;
+            left.prot = prot;
+            left.type = builtin;
         }
-        emit_mov_r2r(p->m, REG_BX, REG_AX);
-        emit_poprax(p->m);
-        if(add){
-            emit_addr2r(p->m,REG_AX,REG_BX);
-        }else{
-            emit_minusr2r(p->m,REG_AX,REG_BX);
+        else{
+            is_left_val = expr(p, &left, OPP_Assign);
+            lexer_expect(p->l, ')');
         }
-        right_val = 1;
     }
-    *inf = left;
-    return right_val;
-}
 
-bool expr_condi(parser_t *p,var_t*inf){
-    var_t left,right;
-    bool right_val = expr_addsub(p,&left);
-    bool lt = 0, gt = 0, ne = 0, eql = 0, fle = 0;
-    while ((lt = lexer_skip(p->l, '<'))||
-            (gt = lexer_skip(p->l, '>'))||
-            (ne = lexer_skip(p->l, TK_NEQ))||
-            (eql = lexer_skip(p->l, TK_EQ))||
-            (fle = lexer_skip(p->l, TK_LE))||
-            (lexer_skip(p->l, TK_GE))) {
-        emit_pushrax(p->m); // push rax
-        lexer_next(p->l); //skip operand
+
+    token = lexer_peek(p->l);
+    type = token.type;
+    while (type != ';' && token2opp(type) >= ctx_priority) {
+        var_t right = {0,0,0,0,0};
         lexer_next(p->l);
-        expr_addsub(p,&right);
-        if(left.type == TP_FLOAT || right.type == TP_FLOAT){
-            trigger_parser_err(p, "Float operation is not supported");
+        if(type == '='){
+            if(need_load) need_load =0;
+            else emit_mov_r2r(p->m, REG_BX, REG_AX); // case for *a = b;
+            lexer_next(p->l);
+            assignment(p,&left);
+
         }
-        emit_mov_r2r(p->m, REG_BX, REG_AX);
-        emit_poprax(p->m);
-        emit(p->m, 0x48);emit(p->m, 0x39);emit(p->m, 0xd8); // cmp %rax,%rbx
-        emit(p->m,0x0f);
-        emit(p->m, lt ? 0x9c /* < */ :
-                   gt ? 0x9f /* > */ :
-                        ne ? 0x95 /* != */ :
-                             eql ? 0x94 /* == */ :
-                                   fle ? 0x9e /* <= */ :
-                                         0x9d /* >= */);
-        emit(p->m, 0xc0); // setX al
-        emit(p->m, 0x48);emit(p->m, 0x0f);emit(p->m, 0xb6);emit(p->m, 0xc0); // mov %al,%rax
-        right_val = 1;
+        else if(type == TK_ADD2 || type == TK_MINUS2){
+            // add/minus, but return the original value
+            if(!need_load){
+                trigger_parser_err(p, "Inc/Dec must be applied to a left value!");
+            }
+            load_var(p, left);
+            emit_pushrbx(p->m);
+            emit_pushrax(p->m);
+            emit(p->m, 0x48);emit(p->m, 0xff);
+            if(type == TK_ADD2){
+                emit(p->m, 0xc0);
+            }else {
+                emit(p->m, 0xc8);
+            }
+            assign_var(p, &left);
+            emit_poprax(p->m);
+            emit_poprbx(p->m);
+            need_load = 0;
+            is_left_val = 0;
+        }
+        else if(type == '['){
+            lexer_next(p->l);
+            array_visit(p, &left, 0);
+            need_load = 1;
+        }else if(type == '.'){
+            if(need_load) need_load = 0;
+            if(left.ptr_depth){
+                emit_mov_addr2r(p->m,REG_BX,REG_BX);
+            }
+            token_t name_token = lexer_next(p->l);
+            if(name_token.type != TK_IDENT){
+                trigger_parser_err(p, "Need a word after '.'");
+            }
+            proto_sub_t pro_sub;
+            int r = struct_offset(p, left.prot, name_token,&pro_sub);
+            if(r == -1){
+                trigger_parser_err(p, "Cannot find the member!");
+            }
+            left.prot = pro_sub.type;
+            left.type = pro_sub.builtin;
+            left.ptr_depth = pro_sub.ptr_depth;
+            emit_add_rbx(p->m, r);
+            need_load = 1;
+        }
+        else {
+    
+            if(need_load && !is_left_only){
+                load_var(p, left);
+                need_load = 0;
+            }
+            is_left_val = 0;
+            if(type == '+' || type == '-'){
+                emit_pushrax(p->m);
+                lexer_next(p->l);
+                expr(p, &right, OPP_Mul);
+                if(!is_numeric(p, left, right)){
+                    trigger_parser_err(p, "Cannot add!");
+                }
+                
+                if(type == '+'){
+                    emit_poprbx(p->m);
+                    emit_addr2r(p->m, REG_AX, REG_BX);
+                }
+                else{
+                    emit_mov_r2r(p->m, REG_BX, REG_AX);
+                    emit_poprax(p->m);
+                    emit_minusr2r(p->m, REG_AX,REG_BX);
+                }
+            }else if(type == '*' || type == '/' || type == '%'){
+                lexer_next(p->l);
+                emit_pushrax(p->m);
+                expr(p, &right, OPP_Inc);
+                if(!is_numeric(p, left, right)){
+                    trigger_parser_err(p, "Cannot add!");
+                }
+                emit_mov_r2r(p->m, REG_BX, REG_AX);
+                emit_poprax(p->m);
+                if(type == '*'){
+                    emit_mulrbx(p->m);
+                }else if(type == '/'){
+                    emit_divrbx(p->m);
+                }else{
+                    emit_divrbx(p->m);
+                    emit_mov_r2r(p->m, REG_AX, REG_DX);
+                }
+            }else if(type == '>' || type == '<' || type == TK_NEQ || type == TK_EQ || type == TK_LE || type == TK_GE){
+                bool lt = type =='<',gt = type == '>',ne = type == TK_NEQ,eql = type == TK_EQ,fle = type == TK_LE;
+                emit_pushrax(p->m);
+                lexer_next(p->l);
+                if(eql || ne){
+                    expr(p, &right, OPP_Lt);
+                }else {
+                    expr(p,&right,OPP_Shl);
+                }
+                if(!is_numeric(p, left, right)){
+                    trigger_parser_err(p, "Cannot compare!");
+                }
+                emit_mov_r2r(p->m, REG_BX, REG_AX);
+                emit_poprax(p->m);
+                emit(p->m, 0x48);emit(p->m, 0x39);emit(p->m, 0xd8); // cmp %rax,%rbx
+                emit(p->m,0x0f);
+                emit(p->m, lt ? 0x9c /* < */ :
+                        gt ? 0x9f /* > */ :
+                                ne ? 0x95 /* != */ :
+                                    eql ? 0x94 /* == */ :
+                                        fle ? 0x9e /* <= */ :
+                                                0x9d /* >= */);
+                emit(p->m, 0xc0); // setX al
+                emit(p->m, 0x48);emit(p->m, 0x0f);emit(p->m, 0xb6);emit(p->m, 0xc0); // mov %al,%rax
+            }else if(type == '|' || type == '&' || type == '^' || type == TK_AND || type == TK_OR){
+                bool or = (type == '|')||(type == TK_OR);
+                bool and = (type == '&')||(type == TK_AND);
+                bool xor = type == '^';
+                emit_pushrax(p->m);
+                lexer_next(p->l);
+                expr(p, &right, OPP_Assign);
+                if(!is_numeric(p, left, right)){
+                    trigger_parser_err(p, "Requre 2 numeric variable!");
+                }
+                emit_mov_r2r(p->m, REG_BX, REG_AX);
+                emit_poprax(p->m);
+                emit(p->m, 0x48);
+                emit(p->m, and?0x21:or?0x09:0x31);
+                emit(p->m, 0xd8);
+
+            }else if(type == TK_LSHL || type == TK_LSHR){
+                bool lsl = type == TK_LSHL;
+                emit_pushrax(p->m);
+                lexer_next(p->l);
+                expr(p,&right,OPP_Add);
+                emit(p->m, 0x48);emit(p->m, 0x31);emit(p->m, 0xc9); // xor rcx,rcx
+                emit_mov_r2r(p->m, REG_CX, REG_AX);
+                emit_poprax(p->m);
+                emit(p->m, 0x48);emit(p->m, 0xd3);
+                if(lsl){
+                    emit(p->m, 0xe0);
+                }else {
+                    emit(p->m, 0xe8);
+                }
+                
+            }
+        }
+        token = lexer_peek(p->l);
+        type = token.type;
+    }
+    if(need_load && !is_left_only){
+        load_var(p, left);
+        is_left_val = 0;
+    }
+    if(is_left_only && !is_left_val){
+        trigger_parser_err(p, "A left-val is required!");
     }
     *inf = left;
-    return right_val;
+    return is_left_val;
+
 }
 
-bool expr_root(parser_t*p,var_t*inf){
-    var_t left,right;
-    bool right_val = expr_condi(p, &left);
-    bool and = 0,or = 0,xor = 0;
-    while ((and = lexer_skip(p->l, '&'))||
-            (or = lexer_skip(p->l, '|'))||
-            (xor = lexer_skip(p->l, '^'))||
-            (and = lexer_skip(p->l, TK_AND))||
-            (or = lexer_skip(p->l, TK_OR))
-    ){
-        emit_pushrax(p->m);
-        lexer_next(p->l);lexer_next(p->l);
-        expr_condi(p, &right);
-        emit_mov_r2r(p->m, REG_BX, REG_AX);
-        emit_poprax(p->m);
-        emit(p->m, 0x48);
-        emit(p->m, and?0x21:or?0x09:0x31);
-        emit(p->m, 0xd8);
-        right_val = 1;
-    }
-    *inf = left;
-    return right_val;
-}

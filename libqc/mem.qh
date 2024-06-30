@@ -1,0 +1,8 @@
+#ifndef _H_MEM
+#define _H_MEM
+
+u64 (*calloc)(u32 num,u32 sz);
+extern u64 malloc(u32 size);
+u8 (*free)(u64 addr);
+
+#endif

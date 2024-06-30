@@ -1,5 +1,5 @@
-import "../libqc/io.qh"
-import "../libqc/string.qh"
+#include "../libqc/io.qh"
+#include "../libqc/string.qh"
 u8 main(){
 u8 *text = "hello world!";
     printstr(text);

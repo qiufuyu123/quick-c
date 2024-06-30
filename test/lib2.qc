@@ -1,4 +1,4 @@
-import "libqc.io"
+#include "libqc.io"
 
 io.println("233");
 

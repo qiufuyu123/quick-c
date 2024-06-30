@@ -380,11 +380,18 @@ void emit_divrbx(module_t*v){
     emit(v, 0xf3);
 }
 
+
+void emit_pushrbx(module_t *v){
+    emit(v, 0x53); 
+}
 void emit_pushrax(module_t*v){
     emit(v, 0x50);
 }
 void emit_poprax(module_t*v){
     emit(v,0x58);
+}
+void emit_poprbx(module_t*v){
+    emit(v, 0x5b);
 }
 
 void emit_saversp(module_t *v){

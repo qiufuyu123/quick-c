@@ -3,7 +3,11 @@
 
 */
 
+#ifndef _IO_H
+#define _IO_H
 
-extern u8 printnum(u64 val,u8 len);
-extern u8 printstr(u8 *addr);
-extern u8 printf(u8 *format);
+u8 (*printnum)(u64 val,u8 len);
+u8 (*printstr)(u8 *addr);
+u8 (*printf)(u8 *format);
+u8 redef_test = 1;
+#endif

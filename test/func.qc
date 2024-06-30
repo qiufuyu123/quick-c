@@ -1,4 +1,4 @@
-import "../libqc/io.qh"
+#include "../libqc/io.qh"
 
 
 u8 f(u8 e,u8 g,u8 h){

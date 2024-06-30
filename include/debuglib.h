@@ -10,6 +10,8 @@ enum debug_lib{
      // which len is 1,2,4 or 8
     DBG_PRINT_STR,
     DBG_PRINTF,
+    DBG_CALLOC,
+    DBG_FREE,
     DBG_NUM
 };
 

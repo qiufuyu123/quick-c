@@ -1,12 +1,13 @@
 #include "lex.h"
 #include "define.h"
+#include "hashmap.h"
 
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-
+static hashmap_t const_table;
 // Magic prime number for FNV hashing.
 #define FNV_64_PRIME ((u64) 0x100000001b3ULL)
 u64 hash_string(char *string, int length) {
@@ -34,7 +35,7 @@ static inline int is_decimal_digit(char ch) {
 }
 
 static inline int is_ident_start(char ch) {
-	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_';
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_' || ch == '#';
 }
 
 static inline int is_ident_continue(char ch) {
@@ -50,6 +51,7 @@ static void lex_whitespace(Lexer_t *lxr) {
 				lxr->cursor++;
 			}
 			lxr->line++;
+            hashmap_put(&const_table, "_LINE_", 6, (void*)lxr->line);
 		}
 		lxr->cursor++;
 	}
@@ -77,6 +79,18 @@ static void trigger_lex_error(Lexer_t *lxr, const char * msg,...){
     char *l = lex_get_line(lxr);
     printf("Lexer: %s! At line(%d)\nNear: %s.\n",buf,lxr->line,l);
     exit(1);
+}
+
+void lex_def_const(Lexer_t *lxr, token_t name, token_t val){
+    if(val.type != TK_INT){
+        trigger_lex_error(lxr, "#define/const expect a number const!");
+    }
+    hashmap_put(&const_table, &lxr->code[name.start], name.length, (void*)val.integer);
+}
+
+char lex_ifdef_const(Lexer_t *lxr, token_t name){
+    void *x = 0;
+    return hashmap_exist(&const_table, &lxr->code[name.start], name.length, &x);
 }
 
 static void lex_float(Lexer_t *lxr){
@@ -134,13 +148,13 @@ static token_t lex_ident(Lexer_t *lxr) {
 
 	// A list of reserved keywords and their corresponding token values
 	static char *keywords[] = {
-		 "if", "else", "elseif", "loop", "while", "for", "fn", "struct","import","impl","new","extern","break","true",
-		"false", "nil", "i8","u8","i16","u16","i32","u32",
+		 "if", "else", "#ifdef", "#endif", "while", "for", "typedef", "struct","#include","#pragma","#define","extern","break","true",
+		"false", "#ifndef", "i8","u8","i16","u16","i32","u32",
         "i64","u64","return","enum",NULL,
 	};
 	static Tk keyword_tks[] = {
-		 TK_IF, TK_ELSE, TK_ELSEIF, TK_LOOP, TK_WHILE, TK_FOR, TK_FN,TK_STRUCT,TK_IMPORT,TK_IMPL,TK_NEW,TK_EXTERN,TK_BREAK,
-		TK_TRUE, TK_FALSE, TK_NIL,TK_I8,TK_U8,TK_I16,TK_U16,TK_I32,TK_U32,TK_I64
+		 TK_IF, TK_ELSE, TK_IFDEF, TK_ENDIF, TK_WHILE, TK_FOR, TK_TYPEDEF,TK_STRUCT,TK_IMPORT,TK_PRAGMA,TK_DEFINE,TK_EXTERN,TK_BREAK,
+		TK_TRUE, TK_FALSE, TK_IFNDEF,TK_I8,TK_U8,TK_I16,TK_U16,TK_I32,TK_U32,TK_I64
         ,TK_U64,TK_RETURN,TK_ENUM
 	};
 
@@ -153,10 +167,18 @@ static token_t lex_ident(Lexer_t *lxr) {
 			return lxr->tk_now;
 		}
 	}
+    
+    u64 macro_data = 0;
+    if(lxr->need_macro && hashmap_exist(&const_table, &lxr->code[lxr->tk_now.start], lxr->tk_now.length, (void*)&macro_data)){
+        lxr->tk_now.type = TK_INT;
+        lxr->tk_now.integer = macro_data;
+    }else {
+        // Didn't find a matching keyword, so we have an identifier
+        lxr->tk_now.type = TK_IDENT;
+        lxr->tk_now.id = hash_string(ident, lxr->tk_now.length);
+    }
 
-	// Didn't find a matching keyword, so we have an identifier
-	lxr->tk_now.type = TK_IDENT;
-	lxr->tk_now.id = hash_string(ident, lxr->tk_now.length);
+	
     return lxr->tk_now;
 }
 
@@ -167,10 +189,21 @@ void lexer_init(Lexer_t *lex,char *path, char *code){
     lex->cursor = 0;
     lex->line = 1;
     lex->tk_now.type = 0;
+    lex->need_macro = 1;
+    if(!const_table.data )
+        hashmap_create(2,&const_table);
+    hashmap_put(&const_table, "_LINE_", 6, (void*)lex->line);
+
 }
 
 void lexer_free(Lexer_t *lex){
-    free(lex->code);
+    //hashmap_destroy(&const_table);
+    //free(lex->code);
+}
+
+
+void macro_free(){
+    hashmap_destroy(&const_table);
 }
 
 #define MULTI_CHAR_TK(a,b,t)\
@@ -219,6 +252,18 @@ token_t lexer_next(Lexer_t *lex){
     }else if(is_decimal_digit(c)){
         return lex_num(lex);
     }
+    else if(c == '\''){
+        lex->cursor++;
+        char o = lex->code[lex->cursor];
+        lex->cursor++;
+        if(lex->code[lex->cursor] != '\''){
+            trigger_lex_error(lex, "Expect ' after '");
+        }
+        lex->tk_now.type = TK_INT;
+        lex->tk_now.integer = o;
+        lex->cursor++;
+        return  lex->tk_now;
+    }
     if(c=='/' && lex->code[lex->cursor+1]=='/'){
         while (lex->code[lex->cursor]) {
             if(lex->code[lex->cursor] == '\n'){
@@ -244,27 +289,36 @@ token_t lexer_next(Lexer_t *lex){
         return lexer_next(lex);
     }
     // symbols
+
+    //TODO: WTF trash codes...
     switch (c) {
-        MULTI_CHAR_TK('+', '+', TK_ADD2)
-        MULTI_CHAR_TK('-', '-', TK_MINUS2)
-        // MULTI_CHAR_TK('+', '=', TK_ADD_ASSIGN)
-        // MULTI_CHAR_TK('-', '=', TK_SUB_ASSIGN)
-        MULTI_CHAR_TK('*', '=', TK_MUL_ASSIGN)
-        MULTI_CHAR_TK('/', '=', TK_DIV_ASSIGN)
-        MULTI_CHAR_TK('%', '=', TK_MOD_ASSIGN)
-
-        MULTI_CHAR_TK('<', '=', TK_LE)
-        MULTI_CHAR_TK('>', '=', TK_GE)
-        MULTI_CHAR_TK('=', '=', TK_EQ)
-        MULTI_CHAR_TK('!', '=', TK_NEQ)
-
-        MULTI_CHAR_TK('&', '&', TK_AND)
-        MULTI_CHAR_TK('|', '|', TK_OR)
-        default:
-            lex->tk_now.type = lex->code[lex->cursor];
-		    lex->tk_now.length = 1;
-            lex->cursor++;
-		    break;
+        MULTI_CHAR_TK('<', '<', TK_LSHL)
+        MULTI_CHAR_TK('>', '>', TK_LSHR)
+        MULTI_CHAR_TK('-', '>', '.')
+    }
+    if(lex->tk_now.type != TK_LSHL && lex->tk_now.type != TK_LSHR && lex->tk_now.type != '.'){
+        switch (c) {
+            MULTI_CHAR_TK('+', '+', TK_ADD2)
+            MULTI_CHAR_TK('-', '-', TK_MINUS2)
+            // MULTI_CHAR_TK('+', '=', TK_ADD_ASSIGN)
+            // MULTI_CHAR_TK('-', '=', TK_SUB_ASSIGN)
+            MULTI_CHAR_TK('*', '=', TK_MUL_ASSIGN)
+            MULTI_CHAR_TK('/', '=', TK_DIV_ASSIGN)
+            MULTI_CHAR_TK('%', '=', TK_MOD_ASSIGN)
+            
+            MULTI_CHAR_TK('<', '=', TK_LE)
+            MULTI_CHAR_TK('>', '=', TK_GE)
+            MULTI_CHAR_TK('=', '=', TK_EQ)
+            MULTI_CHAR_TK('!', '=', TK_NEQ)
+            
+            MULTI_CHAR_TK('&', '&', TK_AND)
+            MULTI_CHAR_TK('|', '|', TK_OR)
+            default:
+                lex->tk_now.type = lex->code[lex->cursor];
+                lex->tk_now.length = 1;
+                lex->cursor++;
+                break;
+        }
     }
 
     return lex->tk_now;
@@ -277,16 +331,20 @@ token_t lexer_expect(Lexer_t *lex,Tk type){
     return lex->tk_now;
 }
 
-bool lexer_skip(Lexer_t *lex,Tk type){
+token_t lexer_peek(Lexer_t *lex){
     int old_col = lex->line;
     token_t tk_old = lex->tk_now;
     int old = lex->cursor;
-    Tk ntk = lexer_next(lex).type;
-    bool r = ntk ==  type;
+    token_t ntk = lexer_next(lex);
+    
     lex->cursor = old;
     lex->line = old_col;
     lex->tk_now = tk_old;
-    return r;
+    return ntk;
+}
+
+bool lexer_skip(Lexer_t *lex,Tk type){
+    return lexer_peek(lex).type == type;
 }
 
 void lexer_skip_till(Lexer_t *lex, Tk stop){
@@ -300,7 +358,7 @@ void lexer_debug(char *content){
     token_t tk;
     static char* translate[] = {"+=","-=","*=","/=","%=","==",
     "!=","<=",">=","&&","||","if","else","elseif","loop","while",
-    "for","fn","struct","import","impl","new","ID","FLOAT","INT","i8","u8","i16","u16","i32","u32",
+    "for","fn","struct","#include","impl","new","ID","FLOAT","INT","i8","u8","i16","u16","i32","u32",
         "i64","u64","FALSE","TRUE","RET","NIL"};
     lexer_init(&lex, "debug/test.q.c", content);
     while (1) {

@@ -55,7 +55,7 @@ int var_get_base_len(char type){
     }
 }
 
-int def_stmt(parser_t *p,int *ptr_depth,char *builtin,proto_t** proto,token_t *name){
+int def_stmt(parser_t *p,int *ptr_depth,char *builtin,proto_t** proto,token_t *name,bool need_var_name){
 
     token_t t = p->l->tk_now;
     
@@ -94,7 +94,7 @@ int def_stmt(parser_t *p,int *ptr_depth,char *builtin,proto_t** proto,token_t *n
         p->l->tk_now = var_name;
         *ptr_depth = 1;
     }
-    if(var_name.type!=TK_IDENT){
+    if(var_name.type!=TK_IDENT && need_var_name){
         trigger_parser_err(p, "An identity is needed after a type(%d)",p->l->tk_now.type);
     }
     if(*builtin != TP_CUSTOM){
@@ -110,7 +110,7 @@ int arg_decl(parser_t *p,int offset,hashmap_t *dst,char *btin,bool is_decl){
     char builtin = TP_UNK;
     proto_t *type;
     
-    int sz = def_stmt(p, &ptr_depth, &builtin, &type,NULL);
+    int sz = def_stmt(p, &ptr_depth, &builtin, &type,NULL,1);
     *btin = builtin;
     if(!is_decl){
         return sz;
@@ -132,7 +132,7 @@ int proto_decl(parser_t *p,int offset,hashmap_t *dst){
     int ptr_depth;
     char builtin = TP_UNK;
     proto_t *type;
-    int sz = def_stmt(p, &ptr_depth, &builtin, &type,NULL);
+    int sz = def_stmt(p, &ptr_depth, &builtin, &type,NULL,1);
     token_t name = p->l->tk_now;
     if(dst){
         proto_sub_t *prot = subproto_new(offset,builtin,type,ptr_depth);    
@@ -199,7 +199,7 @@ var_t* var_def(parser_t*p, bool is_extern,char builtin, proto_t *prot){
     int ptr_depth;
     function_frame_t *func = NULL;
     u64 arr = 0;
-    int sz = def_stmt(p, &ptr_depth, &builtin, &prot,NULL);
+    int sz = def_stmt(p, &ptr_depth, &builtin, &prot,NULL,1);
     var_t* nv = var_exist(p);
     if(nv && !var_is_extern(nv)){
         if(is_extern){
@@ -271,11 +271,11 @@ var_t* var_def(parser_t*p, bool is_extern,char builtin, proto_t *prot){
                 lexer_next(p->l);
                 p->m->stack=offset;
                 stmt_loop(p);
-                stack_debug(&p->m->local_sym_table);
+                //stack_debug(&p->m->local_sym_table);
                 module_clean_stack_sym(p->m);
                 lexer_next(p->l);
                 p->m->stack = BYTE_ALIGN(p->m->stack, 16);
-                printf("Total Allocate %d bytes on stack\n",p->m->stack);
+                //printf("Total Allocate %d bytes on stack\n",p->m->stack);
                 
                 *(u32*)(preserv)=p->m->stack;
                 
@@ -305,12 +305,12 @@ var_t* var_def(parser_t*p, bool is_extern,char builtin, proto_t *prot){
             hashmap_put(&p->m->local_sym_table, &p->l->code[name.start], name.length, nv);
         }
         if(is_extern){
-            printf("Extern variable\n");
+            //printf("Extern variable\n");
             return nv;
         }
     }
     if(p->isglo){
-        printf("variable alloc %d bytes on heap!\n",arr?arr*sz:sz);
+        //printf("variable alloc %d bytes on heap!\n",arr?arr*sz:sz);
         nv->base_addr = func?(u64)func:reserv_data(p->m, arr?arr*sz:sz);
         if(arr){
             u64* ptr = (u64*)reserv_data(p->m, 8);
@@ -318,7 +318,7 @@ var_t* var_def(parser_t*p, bool is_extern,char builtin, proto_t *prot){
             nv->base_addr = (u64)ptr;
         } 
     }else {
-        printf("variable alloc %d bytes on stack!\n",arr?arr*sz:sz);
+        //printf("variable alloc %d bytes on stack!\n",arr?arr*sz:sz);
         // notice here:
 
         p->m->stack+=(arr?arr*sz:sz);
@@ -367,7 +367,7 @@ int expression(parser_t*p){
         }
         // just assignment?
         var_t inf;
-        expr_base(p, &inf,FALSE);        
+        expr(p, &inf,OPP_Assign);        
         // print the variable
         //
         // if(inf.type!=TP_CUSTOM && inf.isglo){
@@ -388,10 +388,6 @@ int expression(parser_t*p){
             //emit_call_leave(p->m, s);
         }
         
-    }else if(tt == TK_INT || tt == TK_FLOAT){
-        //const expression?
-        var_t inf;
-        expr_root(p, &inf);
     }else if(tt == '['){
         token_t type = lexer_next(p->l);
         if(type.type != TK_IDENT){
@@ -418,7 +414,7 @@ int expression(parser_t*p){
     }
     else {
         var_t inf;
-        return expr_base(p,&inf ,0);
+        return expr(p,&inf ,OPP_Assign);
     }
     return 0;
     
@@ -428,16 +424,14 @@ static char pwd_buf[100]={0};
 
 void stmt(parser_t *p,bool expect_end){
     Tk tt= p->l->tk_now.type;
-    if(tt == TK_STRUCT){
-        token_t tk = lexer_next(p->l);
-        if(tk.type != TK_IDENT){
-            trigger_parser_err(p, "Struct needs an identity name!");
-        }
+    if(tt == TK_TYPEDEF){
+        lexer_expect(p->l, TK_STRUCT);
+        
         lexer_expect(p->l, '{');
         bool is_exist = 0;
         proto_t *new_type=0;
-        if(!hashmap_get(&p->m->prototypes, &p->l->code[tk.start], tk.length))
-            new_type= proto_new(0);
+        
+        new_type= proto_new(0);
         int offset=0;
         while (!lexer_skip(p->l, '}')) {
             lexer_next(p->l);
@@ -445,11 +439,18 @@ void stmt(parser_t *p,bool expect_end){
             lexer_expect(p->l, ';');
         }
         lexer_next(p->l);
-        
+        token_t tk = lexer_next(p->l);
+        if(tk.type != TK_IDENT){
+            trigger_parser_err(p, "Struct needs an identity name!");
+        }
+        if(hashmap_get(&p->m->prototypes, &p->l->code[tk.start], tk.length)){
+            free(new_type);
+            trigger_parser_err(p, "Expect struct name!");
+        }
         if(new_type){
             new_type->len = offset;
             hashmap_put(&p->m->prototypes, &p->l->code[tk.start], tk.length, new_type);
-            proto_debug(new_type);
+            //proto_debug(new_type);
         }
         
     }else if(tt == TK_ENUM){
@@ -461,7 +462,7 @@ void stmt(parser_t *p,bool expect_end){
         }
         var_t inf;
         lexer_next(p->l);
-        expr_root(p,&inf);
+        expr(p,&inf,OPP_Assign);
         if(inf.ptr_depth == 0 && inf.type == TP_CUSTOM){
             trigger_parser_err(p, "Return a struct is not allowed!");
         }
@@ -471,7 +472,7 @@ void stmt(parser_t *p,bool expect_end){
         lexer_expect(p->l, '(');
         lexer_next(p->l);
         var_t inf;
-        expr_root(p,&inf);
+        expr(p,&inf,OPP_Assign);
         lexer_expect(p->l, ')');
         lexer_expect(p->l, '{');
         if(inf.type == TP_CUSTOM && inf.ptr_depth == 0)
@@ -525,7 +526,7 @@ void stmt(parser_t *p,bool expect_end){
         lexer_next(p->l);
         u64 top_adt = (u64)jit_top(p->m);
         var_t inf;
-        expr_root(p, &inf);
+        expr(p, &inf,OPP_Assign);
         lexer_expect(p->l, ')');
         lexer_expect(p->l, '{');
         if(inf.type == TP_CUSTOM && inf.ptr_depth == 0)
@@ -553,7 +554,8 @@ void stmt(parser_t *p,bool expect_end){
         lexer_next(p->l);
         var_t inf;
         u64 base = (u64)jit_top(p->m);
-        expr_root(p, &inf);
+
+        expr(p, &inf,OPP_Assign);
         if(inf.type == TP_CUSTOM && inf.ptr_depth == 0)
             trigger_parser_err(p, "Cannot compare!");
         emit(p->m, 0x3c);emit(p->m,0x00); // cmp al,0
@@ -575,8 +577,9 @@ void stmt(parser_t *p,bool expect_end){
         lexer_next(p->l);
         stmt(p,0);                            //increment...
         *p->l = backup;
-        emit_load(p->m, REG_AX, base);
-        emit(p->m, 0xff);emit(p->m, 0xe0);//jmp rax
+        u64* jmp_base = emit_jmp_flg(p->m);
+        module_add_reloc(p->m, (u64)jmp_base - (u64)p->m->jit_compiled);
+        *jmp_base = base - (u64)p->m->jit_compiled;
         *end_for = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
         // increment stmt
         return;
@@ -605,10 +608,10 @@ void stmt(parser_t *p,bool expect_end){
         strncat(path, &p->l->code[start],len);
         if(pwd)
             memcpy(pwd_buf, &p->l->code[start], pwd-start+1);
-        printf("NOW import work on %s\n",pwd_buf);
+        //printf("NOW #include work on %s\n",pwd_buf);
         mod = module_compile(path, &p->l->code[last_name], len-(last_name-start), 1,p->m);
         if(!mod){
-            trigger_parser_err(p, "Fail to import:%s\n",path);
+            trigger_parser_err(p, "Fail to #include:%s\n",path);
         }
         printf("Load one new module:%s\n",path);
         memset(pwd_buf, 0, 100);
@@ -623,7 +626,39 @@ void stmt(parser_t *p,bool expect_end){
     }else if(tt == TK_EXTERN){
         lexer_next(p->l);
         var_def(p,1,TP_UNK,0);
-    }else if(tt == ';'){
+    }else if(tt == TK_PRAGMA){
+        token_t name = lexer_next(p->l);
+        if(name.type != TK_IDENT){
+            trigger_parser_err(p, "Need an identifier after #pragma");
+        }
+        if(!strncmp(&p->l->code[name.start], "ignore", name.length)){
+            p->isend = 1;
+            return;
+        }
+    }else if(tt == TK_DEFINE){
+        token_t name = lexer_next(p->l);
+        token_t val={TK_INT,0,0,0,.integer=0};
+        if(lexer_skip(p->l, TK_INT)){
+            val = lexer_next(p->l);
+        }
+        lex_def_const(p->l, name, val);
+        return;
+    }else if(tt == TK_IFDEF || tt == TK_IFNDEF){
+        p->l->need_macro = 0;
+        token_t name = lexer_next(p->l);
+        p->l->need_macro = 1;
+        bool judge = tt == TK_IFDEF?!lex_ifdef_const(p->l, name):lex_ifdef_const(p->l, name);
+        if(judge){
+            lexer_skip_till(p->l, TK_ENDIF);
+            lexer_next(p->l);
+        }
+        
+        return;
+    }
+    else if(tt == TK_ENDIF){
+        return;
+    }
+    else if(tt == ';'){
         return;
     }
     else {
@@ -641,7 +676,8 @@ void parser_start(module_t *m,Lexer_t* lxr){
     p.loop_reloc = 0;
     p.isglo = TRUE;
     p.caller_regs_used = 0;
-    while (!lexer_skip(lxr, TK_EOF)) {
+    p.isend = 0;
+    while (!lexer_skip(lxr, TK_EOF) && !p.isend) {
         lexer_next(lxr);
         stmt(&p,1);
     }
@@ -669,6 +705,7 @@ module_t* module_compile(char *path,char *module_name, int name_len,bool is_modu
         i++;
     }
     if(pwd){
+        memset(pwd_buf, 0, 100);
         memcpy(pwd_buf, path, pwd+1);
     }
     fseek(fp, 0, SEEK_END);
@@ -694,14 +731,17 @@ module_t* module_compile(char *path,char *module_name, int name_len,bool is_modu
         
         parser_start(mod, &lex);
         free(buf);
+        lexer_free(&lex);
         if(!previous){
             emit(mod, 0xc9); // leave
             emit(mod, 0xc3); // ret
         }
         err_callback[0]=old[0];
+        
         return mod;
     }else {
         err_callback[0]=old[0];
+        lexer_free(&lex);
         free(buf);
         return 0;
     }

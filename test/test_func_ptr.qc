@@ -1,4 +1,4 @@
-import "../libqc/io.qh"
+#include "../libqc/io.qh"
 
 u8 (*funcptr)(u8 arg1,u8 arg2);
 

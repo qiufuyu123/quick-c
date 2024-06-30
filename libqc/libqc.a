@@ -1,0 +1,49 @@
+
+/*
+    libqc main
+*/
+
+#include "io.qh"
+#include "mem.qh"
+
+extern u8 main();
+
+typedef struct {
+    u64 addr;
+    u8 *cstr_name;
+}_libqc_func;
+
+
+u8 _start_(_libqc_func* list,u8 cnt){
+    printnum = list[0].addr;
+    printstr = list[1].addr;
+    printf = list[2].addr;
+    calloc = list[3].addr;
+    free = list[4].addr;
+    
+    return main();
+}
+
+#include "mem.qh"
+u64 malloc(u64 size){
+    return calloc(1, size);
+}#include "string.qh"
+#include "io.qh"
+u32 strlen(u8 *str){
+    u32 len = 0;
+    while(*str){
+        len=len+1;
+        str = str+1;
+    }
+    return len;
+}
+
+i8 strcmp(u8 *str,u8 *str2){
+    while((*str != 0) && (*str == *str2)){
+        str = str +1;
+        str2 = str2 +1;
+        
+    }
+    i8 t = *str - *str2;
+    return t;
+}

@@ -1,5 +1,5 @@
-import "string.qh"
-import "io.qh"
+#include "string.qh"
+#include "io.qh"
 u32 strlen(u8 *str){
     u32 len = 0;
     while(*str){
