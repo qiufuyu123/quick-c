@@ -1,5 +1,4 @@
-extern u8 printnum(u64 v,u8 len);
-
+#include "../libqc/io.qh"
 u64 fib(u64 a){
     u64 b = 1;
     if(a <= 2){

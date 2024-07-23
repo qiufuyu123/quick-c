@@ -12,6 +12,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <sys/mman.h>
 
 static jmp_buf err_callback;
@@ -421,7 +422,7 @@ int expression(parser_t*p){
 }
 
 static char pwd_buf[100]={0};
-
+extern flgs_t glo_flag;
 void stmt(parser_t *p,bool expect_end){
     Tk tt= p->l->tk_now.type;
     if(tt == TK_TYPEDEF){
@@ -606,6 +607,12 @@ void stmt(parser_t *p,bool expect_end){
         strcpy(old_pwd, pwd_buf);
         strcat(path, pwd_buf);
         strncat(path, &p->l->code[start],len);
+        if(-1 == access(path,F_OK)){
+            printf("%s not exist, try another...(%s)\n",path,glo_flag.glo_include);
+            memset(path, 0, 100);
+            strcat(path, glo_flag.glo_include);
+            strncat(path, &p->l->code[start],len);
+        }
         if(pwd)
             memcpy(pwd_buf, &p->l->code[start], pwd-start+1);
         //printf("NOW #include work on %s\n",pwd_buf);

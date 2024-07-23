@@ -91,7 +91,7 @@ void prepare_calling(parser_t*p){
 
 void func_call(parser_t *p,var_t* inf){
     if(inf->type == TP_FUNC){
-        lexer_next(p->l);
+        
         function_frame_t *func = (function_frame_t*)inf->base_addr;
         // set up arguments
         prepare_calling(p);
@@ -104,7 +104,6 @@ void func_call(parser_t *p,var_t* inf){
     }else if(inf->ptr_depth){
         emit_mov_addr2r(p->m, REG_AX, REG_BX);
         // ax--> jump dst
-        lexer_next(p->l);
         prepare_calling(p);
     }else {
         trigger_parser_err(p, "Cannot Call!");
@@ -230,7 +229,7 @@ void expr_ident(parser_t* p, var_t *inf){
 
 
 int token2opp(Tk type){
-    static int opp_map[23][2] ={
+    static int opp_map[24][2] ={
         {'+',OPP_Add},
         {'-',OPP_Sub},
         {'*',OPP_Mul},
@@ -253,14 +252,15 @@ int token2opp(Tk type){
         {TK_ADD2,OPP_Inc},
         {TK_MINUS2,OPP_Dec},
         {TK_LSHL,OPP_Shl},
-        {TK_LSHR,OPP_Shr}
+        {TK_LSHR,OPP_Shr},
+        {'(',OPP_Fcall}
     };
-    for (int i = 0; i<23; i++) {
+    for (int i = 0; i<24; i++) {
         if(opp_map[i][0] == type){
             return opp_map[i][1];
         }
     }
-    return -1;
+    return 0;
 }
 
 bool is_numeric(parser_t *p,var_t left,var_t right){
@@ -325,6 +325,13 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
     }else if(type == '+' ){
         lexer_next(p->l);
         expr(p, &left, OPP_Inc);
+    }
+    else if(type == '~'){
+        lexer_next(p->l);
+        expr(p, &left, OPP_Inc);
+        emit(p->m, 0x48);
+        emit(p->m, 0xf7);
+        emit(p->m, 0xd0); // not rax;
     }else if(type == '-'){
         lexer_next(p->l);
         expr(p, &left, OPP_Inc);
@@ -359,6 +366,7 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
         is_left_val = 1;
         expr_ident(p, &left);
         if(lexer_skip(p->l, '(')){
+            lexer_next(p->l);
             func_call(p, &left);
             emit_mov_r2r(p->m, REG_BX, REG_AX);
         }else if(lexer_skip(p->l, '[')){
@@ -370,7 +378,49 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
         }else {
             need_load = 1;
         }
-    }else if(type == '('){
+    }
+    else if(type == TK_SIZEOF){
+        //lexer_next(p->l);
+        lexer_expect(p->l, '(');
+        lexer_next(p->l);
+        if(is_type(p)){
+            
+            int ptr_dep = 0;
+            char builtin = TP_UNK;
+            proto_t *prot = NULL;
+            def_stmt(p, &ptr_dep, &builtin, &prot, 0, 0);
+            lexer_now(p->l, ')');
+            left.type = TP_U64;
+            left.ptr_depth = 0;
+            u64 size = 0;
+            if(ptr_dep){
+                size = 8;
+            }else {
+                if(builtin != TP_CUSTOM){
+                    switch (builtin) {
+                        case TP_U64: case TP_I64:
+                            size = 8;
+                            break;
+                        case TP_U32: case TP_I32:
+                            size = 4;
+                            break;
+                        case TP_U16: case TP_I16:
+                            size = 2;
+                            break;
+                        default:
+                            size = 1;
+                            break;
+                    }
+                }else {
+                    size = prot->len;
+                }
+            }
+            emit_load(p->m, REG_AX, size);
+        }else {
+            trigger_parser_err(p, "Expect a type!");
+        }
+    }
+    else if(type == '('){
         lexer_next(p->l);
         if(is_type(p)){
             left.type = TP_UNK;
@@ -424,8 +474,14 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
             need_load = 0;
             is_left_val = 0;
         }
+        else if(type == '('){
+            func_call(p, &left);
+            emit_mov_r2r(p->m, REG_BX, REG_AX);
+            need_load = 0;
+        }
         else if(type == '['){
-            lexer_next(p->l);
+            //lexer_next(p->l);
+            emit_mov_addr2r(p->m, REG_BX, REG_BX);
             array_visit(p, &left, 0);
             need_load = 1;
         }else if(type == '.'){

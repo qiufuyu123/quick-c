@@ -30,15 +30,21 @@ void check(int argc,char**argv){
                 }
                 glo_flag.src_num++;
             }else {
-                if(!glo_flag.dst){
-                    glo_flag.dst = argv[i];
-                }
+                printf("Unknown input:%s\n",argv[i]);
             }
         }else {
             char s = argv[i][1];
             if(s == 'r')glo_flag.reloc_table = 1;
             else if(s == 's') glo_flag.glo_sym_table = 1;
-            else if(s == 'o') glo_flag.need_obj = 1;
+            else if(s == 'o'){
+                glo_flag.need_obj = 1;
+                    i++;
+                    glo_flag.dst = argv[i];
+            }
+            else if(s == 'i' || s == 'I'){
+                i++;
+                glo_flag.glo_include = argv[i];
+            }
             else{
                 if(!strcmp(argv[i],"-code")){
                     if(argc <= i + 1){

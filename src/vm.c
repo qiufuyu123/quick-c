@@ -83,6 +83,9 @@ int module_add_string(module_t *m,vm_string_t str){
                 case '0':
                     dst = '\0';
                     break;
+                case 'r':
+                    dst = '\r';
+                    break;
                 default:
                     return -1;
             }

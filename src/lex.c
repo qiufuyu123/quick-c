@@ -112,8 +112,9 @@ static void lex_int(Lexer_t *lxr,int base){
     char *start = &lxr->code[lxr->cursor];
     char *end;
     u64 val = strtoull(start, &end,base);
+    errno = 0;
     if(errno != 0){
-        trigger_lex_error(lxr, "Cannot parse integer const");
+        trigger_lex_error(lxr, "Cannot parse integer const %s",strerror(errno));
     }
     lxr->tk_now.type = TK_INT;
     lxr->tk_now.length = end - start;
@@ -150,12 +151,12 @@ static token_t lex_ident(Lexer_t *lxr) {
 	static char *keywords[] = {
 		 "if", "else", "#ifdef", "#endif", "while", "for", "typedef", "struct","#include","#pragma","#define","extern","break","true",
 		"false", "#ifndef", "i8","u8","i16","u16","i32","u32",
-        "i64","u64","return","enum",NULL,
+        "i64","u64","return","sizeof","enum",NULL,
 	};
 	static Tk keyword_tks[] = {
 		 TK_IF, TK_ELSE, TK_IFDEF, TK_ENDIF, TK_WHILE, TK_FOR, TK_TYPEDEF,TK_STRUCT,TK_IMPORT,TK_PRAGMA,TK_DEFINE,TK_EXTERN,TK_BREAK,
 		TK_TRUE, TK_FALSE, TK_IFNDEF,TK_I8,TK_U8,TK_I16,TK_U16,TK_I32,TK_U32,TK_I64
-        ,TK_U64,TK_RETURN,TK_ENUM
+        ,TK_U64,TK_RETURN,TK_SIZEOF,TK_ENUM
 	};
 
 	// Compare the identifier against reserved language keywords
@@ -237,7 +238,7 @@ token_t lexer_next(Lexer_t *lex){
     lex->tk_now.length = 0;
     lex->tk_now.start = lex->cursor;
     lex->tk_now.id = 0;
-
+    lex->tk_now.type = 0;
     char c = lex->code[lex->cursor];
     if(c == '\0'){
         lex->tk_now.type = TK_EOF;
@@ -320,7 +321,10 @@ token_t lexer_next(Lexer_t *lex){
                 break;
         }
     }
-
+    if(lex->tk_now.type == 0){
+        lex->tk_now.type = c;
+        lex->cursor++;
+    }
     return lex->tk_now;
 }
 
@@ -329,6 +333,12 @@ token_t lexer_expect(Lexer_t *lex,Tk type){
         trigger_lex_error(lex, "Unexpected token,need:%c",type);
     }
     return lex->tk_now;
+}
+
+void lexer_now(Lexer_t *lex,Tk type){
+    if(lex->tk_now.type != type){
+        trigger_lex_error(lex, "Unexpected token,need:%c",type);
+    }
 }
 
 token_t lexer_peek(Lexer_t *lex){

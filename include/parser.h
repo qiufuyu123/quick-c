@@ -18,20 +18,21 @@ typedef struct{
 enum op_priority
 {
 
-    OPP_Assign, // operator =, keep Assign as highest priority operator
+    OPP_Assign = 1, // operator =, keep Assign as highest priority operator
     OPP_OrAssign, OPP_XorAssign, OPP_AndAssign, OPP_ShlAssign, OPP_ShrAssign, // |=, ^=, &=, <<=, >>=
     OPP_AddAssign, OPP_SubAssign, OPP_MulAssign, OPP_DivAssign, OPP_ModAssign, // +=, -=, *=, /=, %=
     OPP_Cond, // operator: ?
     OPP_Lor, OPP_Lan, OPP_Or, OPP_Xor, OPP_And, // operator: ||, &&, |, ^, &
     OPP_Eq, OPP_Ne, OPP_Lt, OPP_Gt, OPP_Le, OPP_Ge, // operator: ==, !=, <, >, <=, >=
     OPP_Shl, OPP_Shr, OPP_Add, OPP_Sub, OPP_Mul, OPP_Div, OPP_Mod, // operator: <<, >>, +, -, *, /, %
-    OPP_LeftOnly, OPP_Inc, OPP_Dec, OPP_Dot, OPP_Arrow, OPP_Bracket, // operator: ++, --, ., ->, [
+    OPP_LeftOnly, OPP_Inc, OPP_Dec, OPP_Dot, OPP_Arrow, OPP_Fcall,OPP_Bracket, // operator: ++, --, ., ->, [
 };
 
 typedef struct{
     int src_start;
     int src_num;
     char *dst;
+    char *glo_include;
     u64 code_base;
     bool need_obj;
     bool reloc_table;

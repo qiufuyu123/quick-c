@@ -14,7 +14,7 @@ enum multi_tks {
     TK_LSHL,TK_LSHR,
 	TK_IF, TK_ELSE, TK_IFDEF, TK_ENDIF, TK_WHILE, TK_FOR, TK_TYPEDEF, TK_STRUCT,TK_IMPORT,TK_PRAGMA,TK_DEFINE,TK_EXTERN,TK_ENUM,
 	TK_IDENT,TK_BREAK, TK_FLOAT,TK_INT,TK_I8,TK_U8,TK_I16,TK_U16,TK_I32,TK_U32,TK_I64,TK_U64, TK_FALSE, TK_TRUE, TK_IFNDEF
-    ,TK_RETURN,
+    ,TK_RETURN,TK_SIZEOF,
 	TK_EOF,
 };
 
@@ -60,6 +60,8 @@ void macro_free();
 token_t lexer_peek(Lexer_t *lex);
 
 token_t lexer_next(Lexer_t *lex);
+
+void lexer_now(Lexer_t *lex,Tk type);
 
 token_t lexer_expect(Lexer_t *lex,Tk type);
 
