@@ -27,7 +27,12 @@ void trigger_parser_err(parser_t* p,const char *s,...){
     if(p->l->tk_now.type == TK_IDENT){
         memcpy(bufname, &p->l->code[p->l->tk_now.start],p->l->tk_now.length);
     }
-    printf("Parser: Line:%d\nNear:%s\n",p->l->line,lex_get_line(p->l));
+    int col = p->l->cursor - p->l->col+1;
+    printf("Parser: Line(%d) Col(%d)\nNear:%s\n\033[31m",p->l->line,col,lex_get_line(p->l));
+    for (int i = 0; i<col-1; i++) {
+        printf("~");
+    }
+    printf("^\033[0m\n");
     printf("Error: %s('%s')\n",buf,bufname);
     // exit(1);
     glo_sym_debug(&p->m->sym_table);

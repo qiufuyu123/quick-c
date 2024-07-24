@@ -23,6 +23,7 @@ typedef struct{
     int start;
     int length;
     int line;
+    int col;
     union{
         double db; // double
         float fl;  // float
@@ -39,6 +40,7 @@ typedef struct{
     int cursor;
     int len;
     int line;
+    int col;
 
     token_t tk_now;
     bool need_macro;

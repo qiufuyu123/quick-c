@@ -1,6 +1,5 @@
 #include "../../libqc/def.qh"
 #include "../../libqc/io.qh"
-
 typedef struct{
     u8 a;
     u16 b;
@@ -20,8 +19,10 @@ i8 main(){
     u64 num_64 = 0x1111222233334444;
     u8 num_8 = (u8)num_64;
     printf("%llx %llx\n",num_64,num_8);
-    // size of
-
-    printf("sizeof: %d %d %d %d\n",sizeof ( test_struct),sizeof(test_struct*),sizeof(u16),sizeof(u8));
+    
+    
+    
+    
+    printf("sizeof: %d %d %d %d\n",sizeof 1 test_struct),sizeof(test_struct*),sizeof(u16),sizeof(u8));
     return 0;
 }

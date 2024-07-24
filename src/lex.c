@@ -50,6 +50,7 @@ static void lex_whitespace(Lexer_t *lxr) {
 			if (ch == '\r' && lxr->code[lxr->cursor + 1] == '\n') {
 				lxr->cursor++;
 			}
+            lxr->col = lxr->cursor;
 			lxr->line++;
             hashmap_put(&const_table, "_LINE_", 6, (void*)lxr->line);
 		}
@@ -77,7 +78,13 @@ static void trigger_lex_error(Lexer_t *lxr, const char * msg,...){
     vsprintf(buf, msg, va);
     va_end(va);
     char *l = lex_get_line(lxr);
-    printf("Lexer: %s! At line(%d)\nNear: %s.\n",buf,lxr->line,l);
+    int col = lxr->cursor - lxr->col+1;
+    printf("Lexer: %s! At line(%d) col(%d)\nNear: %s.\n\033[31m",buf,lxr->line,col,l);
+    //printf("~~~~~");
+    for (int i = 0; i<col; i++) {
+        printf("~");
+    }
+    printf("^\033[0m\n");
     exit(1);
 }
 
@@ -146,7 +153,6 @@ static token_t lex_ident(Lexer_t *lxr) {
 		lxr->cursor++;
 	}
 	lxr->tk_now.length = lxr->cursor - lxr->tk_now.start;
-
 	// A list of reserved keywords and their corresponding token values
 	static char *keywords[] = {
 		 "if", "else", "#ifdef", "#endif", "while", "for", "typedef", "struct","#include","#pragma","#define","extern","break","true",
@@ -189,6 +195,7 @@ void lexer_init(Lexer_t *lex,char *path, char *code){
     lex->code = code;
     lex->cursor = 0;
     lex->line = 1;
+    lex->col = 0;
     lex->tk_now.type = 0;
     lex->need_macro = 1;
     if(!const_table.data )
@@ -234,6 +241,7 @@ void lexer_match(Lexer_t *lex, Tk left, Tk right){
 }
 
 token_t lexer_next(Lexer_t *lex){
+    lex->tk_now.col = lex->cursor - lex->col + 1;
     lex->tk_now.line = lex->line;
     lex->tk_now.length = 0;
     lex->tk_now.start = lex->cursor;
@@ -270,6 +278,7 @@ token_t lexer_next(Lexer_t *lex){
             if(lex->code[lex->cursor] == '\n'){
                 lex->cursor++;
                 lex->line++;
+                lex->col = lex->cursor;
                 break;
             }
             lex->cursor++;
@@ -284,6 +293,8 @@ token_t lexer_next(Lexer_t *lex){
                 break;
             }else if(lex->code[lex->cursor] == '\n'){
                 lex->line++;
+                lex->col = lex->cursor;
+                // notice colomn calc here
             }
             lex->cursor++;
         }
