@@ -53,7 +53,7 @@ int link_local(module_t *mod,u64 base_data, u64 base_code, u64 base_str){
         f = fopen(glo_flag.dst, "wc");
         fseek(f, sizeof(file_header), SEEK_SET);
     }
-
+    int rel_code_cnt=0,rel_data_cnt = 0;
     for (int i = 0; i<mod->reloc_table.size; i++) {
         u32 offset = *(u32*)vec_at(&mod->reloc_table, i);
         bool is_extern = 0;
@@ -74,6 +74,7 @@ int link_local(module_t *mod,u64 base_data, u64 base_code, u64 base_str){
                     printf("Reloc-0x%x-0x%llx-content:%llx-EXTERN-DATA\n",offset,(u64)addr,nv->base_addr);
                 u64 data_extern = nv->base_addr & ~DATA_MASK;
                 *addr = base_data + data_extern;
+                rel_data_cnt++;
             }else{
                 if(glo_flag.reloc_table)
                     printf("Reloc-0x%x-0x%llx-content:%llx-EXTERN-CODE\n",offset,(u64)addr,nv->base_addr);
@@ -82,6 +83,7 @@ int link_local(module_t *mod,u64 base_data, u64 base_code, u64 base_str){
                     printf("Undefined Symbol when linking!\n");
                     return -1;
                 }
+                rel_code_cnt++;
             }
         }
         else if((*addr) & DATA_MASK){
@@ -89,6 +91,7 @@ int link_local(module_t *mod,u64 base_data, u64 base_code, u64 base_str){
                 printf("Reloc-0x%x-0x%llx-DATA\n",offset,(u64)addr);
             *addr &= ~DATA_MASK;
             *addr = *addr + base_data;
+            rel_data_cnt++;
         }else if((*addr) & STRTABLE_MASK){
             if(glo_flag.reloc_table)
                 printf("Reloc-0x%x-0x%llx-STR\n",offset,(u64)addr);
@@ -98,6 +101,7 @@ int link_local(module_t *mod,u64 base_data, u64 base_code, u64 base_str){
             if(glo_flag.reloc_table)
                 printf("Reloc-0x%x-0x%llx-CODE\n",offset,(u64)addr);
             *addr = *addr + base_code;
+            rel_code_cnt++;
         }
         else {
             printf("Reloc-0x%x-0x%llx-content:%llx-UNKNOWN\n",offset,(u64)addr,*addr);
@@ -114,7 +118,7 @@ int link_local(module_t *mod,u64 base_data, u64 base_code, u64 base_str){
         fclose(f);
     }
     
-    printf("Linker finished!\n");
+    printf("Linker finished! code_rel:%d,data_rel:%d\n",rel_code_cnt,rel_data_cnt);
     mod->alloc_data = base_data;
     return 1;
 }

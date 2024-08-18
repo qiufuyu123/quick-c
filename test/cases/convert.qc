@@ -23,6 +23,6 @@ i8 main(){
     
     
     
-    printf("sizeof: %d %d %d %d\n",sizeof 1 test_struct),sizeof(test_struct*),sizeof(u16),sizeof(u8));
+    printf("sizeof: %d %d %d %d\n",sizeof( test_struct),sizeof(test_struct*),sizeof(u16),sizeof(u8));
     return 0;
 }

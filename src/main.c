@@ -17,7 +17,8 @@ flgs_t glo_flag = {
     .glo_sym_table = 0,
     .reloc_table   = 0,
     .need_obj      = 0,
-    .need_qlib     = 1
+    .need_qlib     = 1,
+    .norun         = 0
 };
 
 void check(int argc,char**argv){
@@ -55,7 +56,10 @@ void check(int argc,char**argv){
                     glo_flag.code_base = atoll(num);
                 }else if(!strcmp(argv[i], "-nostd")){
                     glo_flag.need_qlib = 0;
-                }else {
+                }else if(!strcmp(argv[i], "-norun")){
+                    glo_flag.norun = 1;
+                }
+                else {
                     printf("Not supported switch:%s\n",argv[i]);
                     exit(-1);
                 }
@@ -103,9 +107,12 @@ int main(int argc,char**argv){
     FILE *f = fopen("core.bin", "wc");
     fwrite(entry->jit_compiled, entry->jit_cur, 1, f);
     fclose(f);
-    printf("RUN");
-    start();
-    if(glo_flag.need_qlib){
+    if(!glo_flag.norun)
+    {
+        printf("RUN");
+        start();
+    }
+    if(glo_flag.need_qlib && !glo_flag.norun){
         u64 qlib_entry = module_get_func(entry, "_start_");
         if(!qlib_entry){
             printf("[ERRO]: Cannot find main-entry(qlibc) _start_\n");
@@ -114,9 +121,10 @@ int main(int argc,char**argv){
         printf("called with:%llx\n",debuglibs);
         void (*qlib_main)(native_func_t*list,u8 sz) = (void*)qlib_entry;
         qlib_main(&debuglibs[0],2);
+        printf("JIT returned: %dbytes / %d % \n",entry->jit_cur,entry->jit_cur*100/entry->jit_compiled_len);
+
     }
     
-    printf("JIT returned: %dbytes / %d % \n",entry->jit_cur,entry->jit_cur*100/entry->jit_compiled_len);
     if(glo_flag.need_obj && glo_flag.dst){
        // module_pack(entry, glo_flag.dst);
     }

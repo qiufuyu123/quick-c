@@ -38,6 +38,7 @@ typedef struct{
     bool reloc_table;
     bool glo_sym_table;
     bool need_qlib;
+    bool norun;
 }flgs_t;
 
 #define VAR_EXIST_LOC (hashmap_get(&p->m->local_sym_table,&p->l->code[p->l->tk_now.start], p->l->tk_now.length))

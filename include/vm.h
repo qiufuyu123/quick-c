@@ -1,6 +1,8 @@
 #ifndef _H_VM
 #define _H_VM
 
+
+#define  QCARCH_X86
 #include "define.h"
 #include "vec.h"
 #include "hashmap.h"
@@ -183,6 +185,8 @@ int emit_call_enter(module_t* v,int p_cnt);
 void emit_call(module_t *v,u64 addr);
 
 u64* emit_jmp_flg(module_t*v);
+
+i32* emit_reljmp_flg(module_t *v);
 
 void emit_call_leave(module_t* v,int sz);
 

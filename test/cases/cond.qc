@@ -10,9 +10,16 @@ u8 test(u8 a){
     }
     return 4;
 }
+u8 test_loop(){
+    for(u8 i=0;i<8;i++){
+        printf("%d\n",i);
+    }
+    return 0;
+}
 
 
 u8 main(){
     printf("result %d",test(6));
+    test_loop();
     return 0;
 }

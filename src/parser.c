@@ -16,7 +16,7 @@
 #include <sys/mman.h>
 
 static jmp_buf err_callback;
-
+extern void gen_rel_jmp(parser_t *p, i32 *flg, u64 target);
 void trigger_parser_err(parser_t* p,const char *s,...){
     va_list va;
     char buf[100]={0};
@@ -250,10 +250,10 @@ var_t* var_def(parser_t*p, bool is_extern,char builtin, proto_t *prot){
             }else{
                 func = (function_frame_t*)nv->base_addr;
             }
-            u64* jmp = 0;
+            i32* jmp_rel = 0;
             u64* preserv = 0;
             if(!is_extern){
-                jmp = emit_jmp_flg(p->m);
+                jmp_rel = emit_reljmp_flg(p->m);
                 func->ptr = (u64)jit_top(p->m);
                 emit(p->m, 0x55);//push rbp
                 emit_mov_r2r(p->m, REG_BP, REG_SP); // mov rbp,rsp
@@ -285,8 +285,9 @@ var_t* var_def(parser_t*p, bool is_extern,char builtin, proto_t *prot){
                 
                 *(u32*)(preserv)=p->m->stack;
                 
-                *jmp = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
-                module_add_reloc(p->m, (u64)jmp - (u64)p->m->jit_compiled);
+                // *jmp = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
+                gen_rel_jmp(p, jmp_rel, (u64)jit_top(p->m));
+                // module_add_reloc(p->m, (u64)jmp - (u64)p->m->jit_compiled);
             }
         
         
@@ -428,6 +429,19 @@ int expression(parser_t*p){
 
 static char pwd_buf[100]={0};
 extern flgs_t glo_flag;
+
+void gen_rel_jmp(parser_t *p, i32 *flg, u64 target){
+    u64 diff = 0;
+    u64 now = target;
+    if(now >= (u64)flg)
+        diff = now - (u64)flg;
+    else
+        diff = (u64)flg - now;
+    if(diff > 32767)
+        trigger_parser_err(p, "Relative jump is too large!");
+    *flg = (i32)((u64)now - ((u64)flg+4));
+}
+
 void stmt(parser_t *p,bool expect_end){
     Tk tt= p->l->tk_now.type;
     if(tt == TK_TYPEDEF){
@@ -492,19 +506,20 @@ void stmt(parser_t *p,bool expect_end){
 
         */
         emit(p->m, 0x3c);emit(p->m,0x00); // cmp al,0
-        emit(p->m, 0x75);emit(p->m,0x0c);  // jne +0x0c +
-        u64* els = emit_jmp_flg(p->m);  // jmpq rax |
+        emit(p->m, 0x75);emit(p->m,0x05);  // jne +0x05+
+        i32* els_rel = emit_reljmp_flg(p->m);
+        //u64* els = emit_jmp_flg(p->m);              // jmprel    |
                                                        //        <-+
-        module_add_reloc(p->m, (u64)els - (u64)p->m->jit_compiled);
+        //module_add_reloc(p->m, (u64)els - (u64)p->m->jit_compiled);
 
         stmt_loop(p);
         lexer_next(p->l);
-        *els = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
+        gen_rel_jmp(p, els_rel,(u64)jit_top(p->m));
         if(lexer_skip(p->l, TK_ELSE)){
             lexer_next(p->l);
             
-            u64 *els_end = emit_jmp_flg(p->m);
-            *els = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
+            i32 *els_end = emit_reljmp_flg(p->m);
+            gen_rel_jmp(p, els_rel,(u64)jit_top(p->m));
             if(lexer_skip(p->l, TK_IF)){
                 // special case: else if{}
                 lexer_next(p->l);
@@ -515,7 +530,7 @@ void stmt(parser_t *p,bool expect_end){
                 stmt_loop(p);
                 lexer_next(p->l);
             }
-            *els_end = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
+            gen_rel_jmp(p, els_end,(u64)jit_top(p->m));
         }
         return;
     }
@@ -523,9 +538,10 @@ void stmt(parser_t *p,bool expect_end){
         if(p->loop_reloc == 0){
             trigger_parser_err(p, "Break should use inside a loop!");
         }
-        u64 *addr = emit_jmp_flg(p->m);
-        *addr = p->loop_reloc;
-        module_add_reloc(p->m, (u64)addr - (u64)p->m->jit_compiled);
+        i32 *addr = emit_reljmp_flg(p->m);
+        // u64 *addr = emit_jmp_flg(p->m);
+        gen_rel_jmp(p, addr, p->loop_reloc);
+        // module_add_reloc(p->m, (u64)addr - (u64)p->m->jit_compiled);
     }
     else if(tt == TK_WHILE){
         lexer_expect(p->l, '(');
@@ -538,19 +554,22 @@ void stmt(parser_t *p,bool expect_end){
         if(inf.type == TP_CUSTOM && inf.ptr_depth == 0)
             trigger_parser_err(p, "Cannot compare!");
         emit(p->m, 0x3c);emit(p->m,0x00); // cmp al,0
-        emit(p->m, 0x75);emit(p->m,0x0c);  // je +0x0c +
-        u64 break_adr = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
-        u64* els = emit_jmp_flg(p->m);  // jmpq rax |
-        module_add_reloc(p->m, (u64)els - (u64)p->m->jit_compiled);
+        emit(p->m, 0x75);emit(p->m,0x05);  // je +0x05 +
+        u64 break_adr = (u64)jit_top(p->m);
+        // u64* els = emit_jmp_flg(p->m);  // jmpq rax |
+        i32* els_rel = emit_reljmp_flg(p->m);
+        //module_add_reloc(p->m, (u64)els - (u64)p->m->jit_compiled);
         u64 old_break = p->loop_reloc;
         p->loop_reloc = break_adr;
         stmt_loop(p);
         p->loop_reloc = old_break;
-        u64 *loop_repeat = emit_jmp_flg(p->m);
-        module_add_reloc(p->m, (u64)loop_repeat - (u64)p->m->jit_compiled);
-        *loop_repeat = top_adt - (u64)p->m->jit_compiled;
+        i32 *loop_repeat_rel = emit_reljmp_flg(p->m);
+        // module_add_reloc(p->m, (u64)loop_repeat - (u64)p->m->jit_compiled);
+        gen_rel_jmp(p, loop_repeat_rel, top_adt);
+        //*loop_repeat = top_adt - (u64)p->m->jit_compiled;
         lexer_next(p->l);
-        *els = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
+        gen_rel_jmp(p, els_rel, (u64)jit_top(p->m));
+        // *els = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
         return;
     }else if(tt == TK_FOR){
 
@@ -565,10 +584,11 @@ void stmt(parser_t *p,bool expect_end){
         if(inf.type == TP_CUSTOM && inf.ptr_depth == 0)
             trigger_parser_err(p, "Cannot compare!");
         emit(p->m, 0x3c);emit(p->m,0x00); // cmp al,0
-        emit(p->m, 0x75);emit(p->m,0x0c);  // je +0x0c +
-        u64 break_adr = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
-        u64* end_for = emit_jmp_flg(p->m);
-        module_add_reloc(p->m, (u64)end_for - (u64)p->m->jit_compiled);
+        emit(p->m, 0x75);emit(p->m,0x05);  // je +0x05 +
+        u64 break_adr = (u64)jit_top(p->m);
+        // u64* end_for = emit_jmp_flg(p->m);
+        i32 *end_for_rel = emit_reljmp_flg(p->m);
+        // module_add_reloc(p->m, (u64)end_for - (u64)p->m->jit_compiled);
         lexer_expect(p->l, ';');  // exit condition
         Lexer_t old = *p->l;
         lexer_skip_till(p->l, '{');   
@@ -583,10 +603,13 @@ void stmt(parser_t *p,bool expect_end){
         lexer_next(p->l);
         stmt(p,0);                            //increment...
         *p->l = backup;
-        u64* jmp_base = emit_jmp_flg(p->m);
-        module_add_reloc(p->m, (u64)jmp_base - (u64)p->m->jit_compiled);
-        *jmp_base = base - (u64)p->m->jit_compiled;
-        *end_for = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
+        // u64* jmp_base = emit_jmp_flg(p->m);
+        i32 *jmp_base_rel = emit_reljmp_flg(p->m);
+        // module_add_reloc(p->m, (u64)jmp_base - (u64)p->m->jit_compiled);
+        // *jmp_base = base - (u64)p->m->jit_compiled;
+        gen_rel_jmp(p, jmp_base_rel, base);
+        // *end_for = (u64)jit_top(p->m) - (u64)p->m->jit_compiled;
+        gen_rel_jmp(p, end_for_rel, (u64)jit_top(p->m));
         // increment stmt
         return;
     }
@@ -614,6 +637,9 @@ void stmt(parser_t *p,bool expect_end){
         strncat(path, &p->l->code[start],len);
         if(-1 == access(path,F_OK)){
             printf("%s not exist, try another...(%s)\n",path,glo_flag.glo_include);
+            if(!glo_flag.glo_include){
+                trigger_parser_err(p, "Cannot find include file!");
+            }
             memset(path, 0, 100);
             strcat(path, glo_flag.glo_include);
             strncat(path, &p->l->code[start],len);
