@@ -15,7 +15,7 @@ i8 main(){
     s1.d = (u8*)&s1.b;
     printf("s1: %d %d %d %d\n",s1.a,s1.b,s1.c,*s1.d);
     u64 adr = (u64)&s1;
-    printf("s1: %d\n",*((test_struct*)(adr))->d);
+    printf("s1: %llx %llx\n",adr,*((test_struct*)adr).d);
     u64 num_64 = 0x1111222233334444;
     u8 num_8 = (u8)num_64;
     printf("%llx %llx\n",num_64,num_8);
