@@ -14,7 +14,7 @@ i32 assert_eq(i32 a, i32 b)
     return 0;
 }
 
-i32 main()
+u32 main()
 {
     /* Value test */
     i32 a,b,c,d=5,e=10;
@@ -55,13 +55,13 @@ i32 main()
     a = a % 3;
     assert_eq(a, 1);
 
-//    a = 1;
-//    a <<= 2;
-//    assert_eq(a, 4);
+   a = 1;
+   a = a<< 2;
+   assert_eq(a, 4);
 
-//    a = 4;
-//    a >>= 2;
-//    assert_eq(a, 1);
+   a = 4;
+   a = a>> 2;
+   assert_eq(a, 1);
 
     a = 17;
     a = a | 14;

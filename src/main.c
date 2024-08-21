@@ -109,8 +109,8 @@ int main(int argc,char**argv){
     fclose(f);
     if(!glo_flag.norun)
     {
-        printf("RUN");
-        start();
+        printf("RUN %d\n",start());
+        
     }
     if(glo_flag.need_qlib && !glo_flag.norun){
         u64 qlib_entry = module_get_func(entry, "_start_");
@@ -121,10 +121,10 @@ int main(int argc,char**argv){
         printf("called with:%llx\n",debuglibs);
         void (*qlib_main)(native_func_t*list,u8 sz) = (void*)qlib_entry;
         qlib_main(&debuglibs[0],2);
-        printf("JIT returned: %dbytes / %d % \n",entry->jit_cur,entry->jit_cur*100/entry->jit_compiled_len);
 
     }
-    
+    printf("JIT returned: %dbytes / %d % \n",entry->jit_cur,entry->jit_cur*100/entry->jit_compiled_len);
+
     if(glo_flag.need_obj && glo_flag.dst){
        // module_pack(entry, glo_flag.dst);
     }

@@ -13,9 +13,19 @@ enum{
 };
 
 enum{
-    REG_AX,REG_CX,REG_DX,REG_BX,REG_SP,REG_BP,REG_SI,REG_DI,REG_R8,
-    REG_R9,REG_R10,REG_R11,REG_R12,REG_R13,REG_R14,REG_R15
+    UOP_NOT,UOP_NEG,UOP_INC,UOP_DEC,
+    BOP_CMP,BOP_OR,BOP_AND,BOP_XOR
 };
+
+enum{
+    REG_AX,REG_CX,REG_DX,REG_BX,REG_SP,REG_BP,REG_SI,REG_DI,REG_R8,
+    REG_R9,REG_R10,REG_R11,REG_R12,REG_R13,REG_R14,REG_R15,REG_FULL
+};
+
+typedef struct{
+    char reg_used[16];
+    char next_free
+}reg_alloc_table_t;
 
 #define STRTABLE_MASK (u64)(0x8000000000000000)
 #define DATA_MASK     (u64)(0x4000000000000000)
@@ -46,6 +56,7 @@ typedef struct{
     proto_t *prot; // prototype
     int ptr_depth; // pointer 
     bool isglo;
+    char reg_used;
 }var_t;
 
 typedef struct{
@@ -68,6 +79,7 @@ typedef struct{
 
     u64 data;
     u64 stack;
+    u64 pushpop_stack;
     u64 alloc_data;
     bool is_native;
 }module_t;
@@ -139,15 +151,19 @@ void emit_data(module_t*v,char w,void* data);
 
 void emit_load(module_t*v,char r,u64 m);
 
-void emit_sub_rbx(module_t *v,int offset);
+void emit_sub_regimm(module_t *v,char r, u32 offset);
 
-void emit_add_rbx(module_t *v,int offset);
+void emit_add_regimm(module_t *v,char r, u32 offset);
 
+void emit_call_reg(module_t *v,char r);
+
+void emit_push_reg(module_t *v,char r);
+void emit_pop_reg(module_t *v,char r);
 void emit_mov_r2r(module_t*v,char dst,char src);
 
-void emit_mov_addr2r(module_t*v,char dst,char src);
+void emit_mov_addr2r(module_t*v,char dst,char src,char wide_type);
 
-void emit_mov_r2addr(module_t*v,char dst,char src);
+void emit_mov_r2addr(module_t*v,char dst,char src,char type);
 
 void emit_addr2r(module_t*v,char dst,char src);
 
@@ -157,16 +173,15 @@ void emit_mulrbx(module_t*v);
 
 void emit_divrbx(module_t*v);
 
-void emit_pushrax(module_t*v);
-void emit_pushrbx(module_t *v);
 void emit_saversp(module_t *v);
+
+u64 emit_offset_stack(module_t *v);
+
+void emit_restore_stack(module_t *v,u64 offset);
 
 void emit_restorersp(module_t *v);
 
-void emit_loadglo(module_t *v, u64 base_addr,bool isrbx, bool is_undef);
-
-void emit_poprax(module_t*v);
-void emit_poprbx(module_t*v);
+void emit_loadglo(module_t *v, u64 base_addr,char r, bool is_undef);
 
 void emit_param_4(module_t *v,u64 a,u64 b,u64 c,u64 d);
 
@@ -190,7 +205,7 @@ i32* emit_reljmp_flg(module_t *v);
 
 void emit_call_leave(module_t* v,int sz);
 
-u64 emit_label_load(module_t* v,bool isrbx);
+u64 emit_label_load(module_t* v,char r);
 
 void proto_impl(module_t *p, proto_t *type);
 
@@ -204,4 +219,7 @@ void backup_caller_reg(module_t *v,int no);
 
 void restore_caller_reg(module_t *v,int no);
 
+void emit_unary(module_t *v,char r, char type);
+
+void emit_binary(module_t *v,char dst,char src, char type);
 #endif

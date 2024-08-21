@@ -9,6 +9,7 @@
 typedef struct{
     module_t *m;
     Lexer_t *l;
+    reg_alloc_table_t reg_table;
     u8 caller_regs_used;
     u64 loop_reloc;
     bool isglo;
@@ -44,6 +45,8 @@ typedef struct{
 #define VAR_EXIST_LOC (hashmap_get(&p->m->local_sym_table,&p->l->code[p->l->tk_now.start], p->l->tk_now.length))
 void* var_exist_glo(parser_t *p);
 
+char acquire_reg(parser_t *p);
+void release_reg(parser_t *p,char r);
 
 int def_stmt(parser_t *p,int *ptr_depth,char *builtin,proto_t** proto,token_t *name,bool need_var_name);
 int var_get_base_len(char type);

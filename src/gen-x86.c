@@ -1,10 +1,12 @@
 #include "parser.h"
 #include "vm.h"
+#include <stdio.h>
 
 #ifdef QCARCH_X86
 
 void emit_load(module_t*v,char r,u64 m){
-    emit(v, 0x48);
+    emit(v, r>=REG_R8?0x49:0x48);
+    r &= 0b00000111;
     emit(v, 0xb8+r); 
     emit_data(v, 8, &m);
 }
@@ -17,47 +19,116 @@ static void emit_offset_rbx_call(module_t *v,int offset, char w, char is_add){
     emit_data(v, w?4:1, &offset);
 }
 
-void emit_sub_rbx(module_t *v,int offset){
-    emit_offset_rbx_call(v, offset, offset>127, 0);
+void emit_regimm(module_t *v, char isadd,char r,u32 offset){
+    
+    emit(v, r>=REG_R8?0x49:0x48);
+    if(r == REG_AX){
+        if(isadd)
+            emit(v, 0x05);
+        else
+            emit(v, 0x2d);
+    }else {
+        emit(v, 0x81);
+        char base = isadd?0b11000000:0b11100000;
+        if(r>=REG_R8){
+            r-=REG_R8;
+        }
+        if(!isadd)
+            r |= 0b00001000;
+        emit(v, base | r);
+    }
+    
+    emit_data(v, 4, &offset);
 }
 
-void emit_add_rbx(module_t *v,int offset){
-    emit_offset_rbx_call(v, offset, offset>127, 1);
+void emit_sub_regimm(module_t *v,char r, u32 offset){
+    emit_regimm(v, 0, r, offset);
+}
+void emit_add_regimm(module_t *v,char r, u32 offset){
+    emit_regimm(v, 1, r, offset);
 }
 
-static void emit_rm(module_t*v,char dst,char src,char mode,char opc){
-    char op = mode,prefix=0b01001000;
+void emit_op_reg(module_t *v,char op,char r,char isff){
+    if(r>=REG_R8){
+        emit(v, 0x41);
+        r-=REG_R8;
+    }
+    if(isff)
+        emit(v, 0xff);
+    emit(v, op+r);
+}
+
+void emit_call_reg(module_t *v,char r){
+    emit_op_reg(v, 0xd0, r,1);
+}
+
+void emit_push_reg(module_t *v,char r){
+    emit_op_reg(v, 0x50, r,0);
+    v->pushpop_stack+=8;
+}
+
+void emit_pop_reg(module_t *v,char r){
+    emit_op_reg(v, 0x58, r,0);
+    if(v->pushpop_stack == 0){
+        printf("Unbalanced push/pop inst!\n");
+        exit(-1);
+    }
+    v->pushpop_stack-=8;
+
+}
+
+
+static void emit_rm(module_t*v,char dst,char src,char mode,char opc,char operand_wide){
+    char op = mode;
+    char prefix = 0;
+    if((operand_wide == TP_U16) || (operand_wide == TP_I16))
+        emit(v,0x66);
+    if((operand_wide == TP_U64 )|| (operand_wide == TP_I64))
+        prefix = 0x48;
+    else if((dst >= REG_R8)||(src >= REG_R8))
+        prefix = 0x40;
+    
     op |= ((0b00000111 & src) <<3);
     op |= (0b00000111 & dst);
-    if(src & 0b00001000){
-        prefix |= 0b00000100;
+    if(prefix){
+        if(src & 0b00001000){
+            prefix |= 0b00000100;
+        }
+        if(dst & 0b00001000){
+            prefix |= 0b00000001;
+        }
     }
-    if(dst & 0b00001000){
-        prefix |= 0b00000001;
-    }
-    emit(v, prefix);
+    if(prefix)
+        emit(v, prefix);
     emit(v, opc);
     emit(v, op);    
 }
 
 void emit_mov_r2r(module_t*v,char dst,char src){ 
-    emit_rm(v, dst, src, 0b11000000, 0x89);
+    if(dst == src)
+        return;
+    emit_rm(v, dst, src, 0b11000000, 0x89,TP_U64);
 }
 
-void emit_mov_addr2r(module_t*v,char dst,char src){
-    emit_rm(v, src, dst, 0, 0x8b);
+void emit_mov_addr2r(module_t*v,char dst,char src,char wide_type){
+    // if()
+    emit_rm(v, src, dst, 0, (wide_type == TP_I8)||(wide_type == TP_U8)?0x8a:0x8b,
+    wide_type);
+    
 }
 
-void emit_mov_r2addr(module_t*v,char dst,char src){
-    emit_rm(v, dst, src, 0, 0x89);
+void emit_mov_r2addr(module_t*v,char dst,char src,char wide_type){
+    emit_rm(v, dst, src, 0, (wide_type == TP_I8)||(wide_type == TP_U8)?0x88:0x89,
+    wide_type);
+    
 }
 
 void emit_addr2r(module_t*v,char dst,char src){
-    emit_rm(v, dst, src, 0b11000000, 0x01);
+    emit_rm(v, dst, src, 0b11000000, 0x01,TP_U64);
 }
 
 void emit_minusr2r(module_t*v,char dst,char src){
-    emit_rm(v, dst, src, 0b11000000, 0x29);
+    emit_rm(v, dst, src, 0b11000000, 0x29,TP_U64);
 }
 
 void emit_mulrbx(module_t*v){
@@ -73,20 +144,6 @@ void emit_divrbx(module_t*v){
     emit(v, 0xf3);
 }
 
-
-void emit_pushrbx(module_t *v){
-    emit(v, 0x53); 
-}
-void emit_pushrax(module_t*v){
-    emit(v, 0x50);
-}
-void emit_poprax(module_t*v){
-    emit(v,0x58);
-}
-void emit_poprbx(module_t*v){
-    emit(v, 0x5b);
-}
-
 void emit_saversp(module_t *v){
     emit(v, 0x54);
 }
@@ -95,8 +152,21 @@ void emit_restorersp(module_t *v){
     emit(v,0x5c);
 }
 
-void emit_loadglo(module_t *v, u64 base_addr,bool isrbx,bool is_undef){
-    u64*ptr =(u64*)emit_label_load(v,isrbx);
+u64 emit_offset_stack(module_t *v){
+    u64 stack_needed = BYTE_ALIGN(v->pushpop_stack,16);
+    printf("stack should be:%x, but now it is:%x\n",stack_needed,v->pushpop_stack);
+    u64 offset = stack_needed - v->pushpop_stack;
+    if(offset)
+        emit_offsetrsp(v, offset, 1);
+    return offset;
+}
+void emit_restore_stack(module_t *v,u64 offset){
+    if(offset)
+        emit_offsetrsp(v, offset, 0);
+}
+
+void emit_loadglo(module_t *v, u64 base_addr,char r,bool is_undef){
+    u64*ptr =(u64*)emit_label_load(v,r);
     *ptr = base_addr;
     u32 val = (u64)ptr - (u64)v->jit_compiled;
     module_add_reloc(v, is_undef?val|EXTERN_MASK:val);
@@ -262,11 +332,12 @@ void emit_call_leave(module_t* v,int sz){
     emit_addr2r(v, REG_SP, REG_AX);
 }
 
-u64 emit_label_load(module_t* v,bool isrbx){
-    emit(v, 0x48);emit(v,isrbx?0xbb:0xb8);
-    u64 ret = (u64)v->jit_compiled+ v->jit_cur;
-    u64 def = 0;
-    emit_data(v, 8, &def);
+u64 emit_label_load(module_t* v,char r){
+    emit_load(v,r,0);
+    // emit(v, 0x48);emit(v,isrbx?0xbb:0xb8);
+    u64 ret = (u64)v->jit_compiled+ v->jit_cur-8;
+    // u64 def = 0;
+    // emit_data(v, 8, &def);
     return ret;
 }
 
@@ -280,6 +351,7 @@ void backup_caller_reg(module_t *v,int no){
     }else if(no == 6){
         emit(v, 0x51); //r9
     }
+    v->pushpop_stack+=8;
 }
 
 void restore_caller_reg(module_t *v,int no){
@@ -292,5 +364,34 @@ void restore_caller_reg(module_t *v,int no){
     }else if(no == 6){
         emit(v, 0x59); //r9
     }
+    v->pushpop_stack-=8;
 }
+
+void emit_unary(module_t *v,char r, char type){
+    if(type == UOP_NOT){
+        emit(v, r>=REG_R8?0x49:0x48);
+        emit(v, 0xf7);
+        emit(v, r>=REG_R8?r-REG_R8+0xd0:r-REG_AX+0xd0);
+    }else if(type == UOP_NEG){
+        emit(v, r>=REG_R8?0x49:0x48);
+        emit(v, 0xf7);
+        emit(v, r>=REG_R8?r-REG_R8+0xd8:r-REG_AX+0xd8);
+    }else if(type == UOP_INC){
+        emit(v, r>=REG_R8?0x49:0x48);
+        emit(v, 0xff);
+        emit(v, r>=REG_R8?r-REG_R8+0xc0:r-REG_AX+0xc0);
+    }else if(type == UOP_DEC){
+        emit(v, r>=REG_R8?0x49:0x48);
+        emit(v, 0xff);
+        emit(v, r>=REG_R8?r-REG_R8+0xc8:r-REG_AX+0xc8);
+    }
+}
+void emit_binary(module_t *v,char dst,char src, char type){
+    
+    emit_rm(v, dst, src, 0b11000000, type == BOP_CMP?0x39:
+                                            type == BOP_OR?0x09:
+                                            type == BOP_AND?0x21:
+                                            0x31,TP_U64);
+}
+// void emit_xor_reg(module_t *v,c)
 #endif

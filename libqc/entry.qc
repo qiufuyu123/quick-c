@@ -21,6 +21,8 @@ u8 _start_(_libqc_func* list,u8 cnt){
     calloc = list[3].addr;
     free = list[4].addr;
     
-    return main();
+    main();
+    printf("end\n");
+    return 0;
 }
 

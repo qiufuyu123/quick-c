@@ -151,6 +151,8 @@ void restore_arg(parser_t *p,int no,int offset,char w){
     if(no > 6){
         trigger_parser_err(p, "Too many args!");
     }
+    // we dont care reg allocation here
+    // since restore_arg is always at the beginning of a function
     emit_mov_r2r(p->m,REG_AX, no == 1?REG_DI:
                                 no ==2?REG_SI:
                                 no ==3?REG_DX:
@@ -163,10 +165,15 @@ void restore_arg(parser_t *p,int no,int offset,char w){
 }
 
 void stmt_loop(parser_t *p){
+    reg_alloc_table_t old_regs = p->reg_table;
+    
     while (!lexer_skip(p->l, '}')) {
-            lexer_next(p->l);
-            stmt(p,1);
+        memset(p->reg_table.reg_used, 0, 16);
+        p->reg_table.next_free = REG_AX;
+        lexer_next(p->l);
+        stmt(p,1);
     }
+    p->reg_table = old_regs;
 }
 
 bool var_is_extern(var_t *v){
@@ -276,7 +283,9 @@ var_t* var_def(parser_t*p, bool is_extern,char builtin, proto_t *prot){
             }else {
                 lexer_next(p->l);
                 p->m->stack=offset;
+                
                 stmt_loop(p);
+                //p->reg_table = old_regs;
                 //stack_debug(&p->m->local_sym_table);
                 module_clean_stack_sym(p->m);
                 lexer_next(p->l);
@@ -354,8 +363,12 @@ int def_or_assign(parser_t *p){
 
             //assignment
             lexer_next(p->l);lexer_next(p->l);
+            char newr = acquire_reg(p);
+            nv->reg_used = newr;
             prep_assign(p, nv);
             assignment(p, nv);
+            release_reg(p, nv->reg_used);
+            nv->reg_used = REG_FULL;
         }
         if(!lexer_skip(p->l, ','))
             break;
@@ -380,20 +393,20 @@ int expression(parser_t*p){
         // if(inf.type!=TP_CUSTOM && inf.isglo){
         //     emit_mov_addr2r(p->m, REG_AX, REG_AX);
         // }
-        if(hashmap_get(&p->m->sym_table, "_debug_", 7)){
-            u64 addr = debuglibs[DBG_PRINT_INT].addr;
-            // load params
-            //printf("will debug:%llx\n",inf.base_addr);
-            if(!inf.isglo){
-                emit_rbpload(p->m, inf.ptr_depth?TP_U64:inf.type, inf.base_addr);
-            }
-            emit_mov_r2r(p->m, REG_DI, REG_AX); // mov rcx,rax
-            emit_load(p->m, REG_SI, inf.ptr_depth?TP_U64-TP_I8: inf.type - TP_I8); 
-            //
-            //int s = emit_call_enter(p->m, 2); // 2params
-            emit_call(p->m, addr);
-            //emit_call_leave(p->m, s);
-        }
+        // if(hashmap_get(&p->m->sym_table, "_debug_", 7)){
+        //     u64 addr = debuglibs[DBG_PRINT_INT].addr;
+        //     // load params
+        //     //printf("will debug:%llx\n",inf.base_addr);
+        //     if(!inf.isglo){
+        //         emit_rbpload(p->m, inf.ptr_depth?TP_U64:inf.type, inf.base_addr);
+        //     }
+        //     emit_mov_r2r(p->m, REG_DI, REG_AX); // mov rcx,rax
+        //     emit_load(p->m, REG_SI, inf.ptr_depth?TP_U64-TP_I8: inf.type - TP_I8); 
+        //     //
+        //     //int s = emit_call_enter(p->m, 2); // 2params
+        //     emit_call(p->m, addr);
+        //     //emit_call_leave(p->m, s);
+        // }
         
     }else if(tt == '['){
         token_t type = lexer_next(p->l);
@@ -442,6 +455,17 @@ void gen_rel_jmp(parser_t *p, i32 *flg, u64 target){
     *flg = (i32)((u64)now - ((u64)flg+4));
 }
 
+char prep_rax(parser_t *p,var_t inf){
+    char need_pop = 0;
+    if(inf.reg_used != REG_AX && p->reg_table.reg_used[REG_AX]){
+        emit_push_reg(p->m, REG_AX);
+        need_pop = 1;
+    }
+    if(inf.reg_used != REG_AX)
+        emit_mov_r2r(p->m, REG_AX,inf.reg_used);
+    return need_pop;
+}
+
 void stmt(parser_t *p,bool expect_end){
     Tk tt= p->l->tk_now.type;
     if(tt == TK_TYPEDEF){
@@ -486,6 +510,9 @@ void stmt(parser_t *p,bool expect_end){
         if(inf.ptr_depth == 0 && inf.type == TP_CUSTOM){
             trigger_parser_err(p, "Return a struct is not allowed!");
         }
+        if(inf.reg_used != REG_AX){
+            emit_mov_r2r(p->m, REG_AX, inf.reg_used);
+        }
         emit(p->m, 0xc9); //leave
         emit(p->m, 0xc3);
     }else if(tt == TK_IF){
@@ -495,6 +522,8 @@ void stmt(parser_t *p,bool expect_end){
         expr(p,&inf,OPP_Assign);
         lexer_expect(p->l, ')');
         lexer_expect(p->l, '{');
+        char need_pop = prep_rax(p, inf);
+        
         if(inf.type == TP_CUSTOM && inf.ptr_depth == 0)
             trigger_parser_err(p, "Cannot compare!");
         /*
@@ -506,6 +535,8 @@ void stmt(parser_t *p,bool expect_end){
 
         */
         emit(p->m, 0x3c);emit(p->m,0x00); // cmp al,0
+        if(need_pop)
+            emit_pop_reg(p->m, REG_AX);
         emit(p->m, 0x75);emit(p->m,0x05);  // jne +0x05+
         i32* els_rel = emit_reljmp_flg(p->m);
         //u64* els = emit_jmp_flg(p->m);              // jmprel    |
@@ -532,6 +563,7 @@ void stmt(parser_t *p,bool expect_end){
             }
             gen_rel_jmp(p, els_end,(u64)jit_top(p->m));
         }
+        
         return;
     }
     else if(tt == TK_BREAK){
@@ -553,7 +585,10 @@ void stmt(parser_t *p,bool expect_end){
         lexer_expect(p->l, '{');
         if(inf.type == TP_CUSTOM && inf.ptr_depth == 0)
             trigger_parser_err(p, "Cannot compare!");
+        char need_pop = prep_rax(p, inf);
         emit(p->m, 0x3c);emit(p->m,0x00); // cmp al,0
+        if(need_pop)
+            emit_pop_reg(p->m,REG_AX);
         emit(p->m, 0x75);emit(p->m,0x05);  // je +0x05 +
         u64 break_adr = (u64)jit_top(p->m);
         // u64* els = emit_jmp_flg(p->m);  // jmpq rax |
@@ -561,6 +596,7 @@ void stmt(parser_t *p,bool expect_end){
         //module_add_reloc(p->m, (u64)els - (u64)p->m->jit_compiled);
         u64 old_break = p->loop_reloc;
         p->loop_reloc = break_adr;
+
         stmt_loop(p);
         p->loop_reloc = old_break;
         i32 *loop_repeat_rel = emit_reljmp_flg(p->m);
@@ -583,7 +619,10 @@ void stmt(parser_t *p,bool expect_end){
         expr(p, &inf,OPP_Assign);
         if(inf.type == TP_CUSTOM && inf.ptr_depth == 0)
             trigger_parser_err(p, "Cannot compare!");
+        char need_pop = prep_rax(p, inf);
         emit(p->m, 0x3c);emit(p->m,0x00); // cmp al,0
+        if(need_pop)
+            emit_pop_reg(p->m, REG_AX);
         emit(p->m, 0x75);emit(p->m,0x05);  // je +0x05 +
         u64 break_adr = (u64)jit_top(p->m);
         // u64* end_for = emit_jmp_flg(p->m);
@@ -715,8 +754,14 @@ void parser_start(module_t *m,Lexer_t* lxr){
     p.isglo = TRUE;
     p.caller_regs_used = 0;
     p.isend = 0;
+    // p.reg_table.reg_used={0};
+    memset(p.reg_table.reg_used, 0, 16);
+    p.reg_table.next_free=REG_AX;
     while (!lexer_skip(lxr, TK_EOF) && !p.isend) {
         lexer_next(lxr);
+        //reg_alloc_table_t old_regs = p.reg_table;
+        memset(p.reg_table.reg_used, 0, 16);
+        p.reg_table.next_free = REG_AX;
         stmt(&p,1);
     }
     
