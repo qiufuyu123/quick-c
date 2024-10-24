@@ -14,6 +14,7 @@ typedef struct{
     u64 loop_reloc;
     bool isglo;
     bool isend;
+    bool isbare;
 }parser_t;
 
 enum op_priority
@@ -35,6 +36,7 @@ typedef struct{
     char *dst;
     char *glo_include;
     u64 code_base;
+    u32 jit_pg_no;
     bool need_obj;
     bool reloc_table;
     bool glo_sym_table;
@@ -53,10 +55,11 @@ int var_get_base_len(char type);
 bool expr(parser_t *p, var_t *inf,int ctx_priority);
 void prep_assign(parser_t *p,var_t *v);
 void assignment(parser_t *p,var_t *v);
+void output_surrounding(parser_t *p);
 void trigger_parser_err(parser_t* p,const char *s,...);
 //bool expr_base(parser_t *p,var_t *inf,bool needptr);
 
-module_t* module_compile(char *path,char *module_name, int name_len,bool is_module,module_t *previous);
+module_t* module_compile(char *path,char *module_name, int name_len,bool is_module,module_t *previous,char is_last);
 int link_local(module_t *mod,u64 base_data, u64 base_code, u64 base_str);
 int link_jit(module_t *mod);
 #endif

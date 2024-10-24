@@ -157,12 +157,12 @@ static token_t lex_ident(Lexer_t *lxr) {
 	static char *keywords[] = {
 		 "if", "else", "#ifdef", "#endif", "while", "for", "typedef", "struct","#include","#pragma","#define","extern","break","true",
 		"false", "#ifndef", "i8","u8","i16","u16","i32","u32",
-        "i64","u64","return","sizeof","enum",NULL,
+        "i64","u64","return","sizeof","enum","__jit__","offsetof",NULL,
 	};
 	static Tk keyword_tks[] = {
 		 TK_IF, TK_ELSE, TK_IFDEF, TK_ENDIF, TK_WHILE, TK_FOR, TK_TYPEDEF,TK_STRUCT,TK_IMPORT,TK_PRAGMA,TK_DEFINE,TK_EXTERN,TK_BREAK,
 		TK_TRUE, TK_FALSE, TK_IFNDEF,TK_I8,TK_U8,TK_I16,TK_U16,TK_I32,TK_U32,TK_I64
-        ,TK_U64,TK_RETURN,TK_SIZEOF,TK_ENUM
+        ,TK_U64,TK_RETURN,TK_SIZEOF,TK_ENUM,TK_JIT,TK_OFFSETOF
 	};
 
 	// Compare the identifier against reserved language keywords
@@ -213,15 +213,18 @@ void lexer_free(Lexer_t *lex){
 void macro_free(){
     hashmap_destroy(&const_table);
 }
-
-#define MULTI_CHAR_TK(a,b,t)\
-    case a:\
+#define MUTLI_SUB_TK(b,t)\
         if (lex->code[lex->cursor + 1] == b) { \
 			lex->tk_now.type = t;                 \
 			lex->tk_now.length = 2;                     \
             lex->cursor+=2;          \
 			break;                                  \
 		}
+
+
+#define MULTI_CHAR_TK(a,b,t)\
+    case a:\
+        MUTLI_SUB_TK(b,t)
 
 void lexer_match(Lexer_t *lex, Tk left, Tk right){
     int depth = 0;
@@ -310,10 +313,12 @@ token_t lexer_next(Lexer_t *lex){
     }
     if(lex->tk_now.type != TK_LSHL && lex->tk_now.type != TK_LSHR && lex->tk_now.type != '.'){
         switch (c) {
-            MULTI_CHAR_TK('+', '+', TK_ADD2)
-            MULTI_CHAR_TK('-', '-', TK_MINUS2)
-            // MULTI_CHAR_TK('+', '=', TK_ADD_ASSIGN)
-            // MULTI_CHAR_TK('-', '=', TK_SUB_ASSIGN)
+            case '+':
+                MUTLI_SUB_TK('+',TK_ADD2)
+                else MUTLI_SUB_TK('=', TK_ADD_ASSIGN)
+            case '-':
+                MUTLI_SUB_TK('-',TK_MINUS2)
+                else MUTLI_SUB_TK('=',TK_SUB_ASSIGN)
             MULTI_CHAR_TK('*', '=', TK_MUL_ASSIGN)
             MULTI_CHAR_TK('/', '=', TK_DIV_ASSIGN)
             MULTI_CHAR_TK('%', '=', TK_MOD_ASSIGN)
@@ -326,7 +331,11 @@ token_t lexer_next(Lexer_t *lex){
             MULTI_CHAR_TK('&', '&', TK_AND)
             MULTI_CHAR_TK('|', '|', TK_OR)
             default:
-                lex->tk_now.type = lex->code[lex->cursor];
+                if(lex->code[lex->cursor] == '@'){
+                    lex->tk_now.type = TK_JIT;
+                }else{
+                    lex->tk_now.type = lex->code[lex->cursor];
+                }
                 lex->tk_now.length = 1;
                 lex->cursor++;
                 break;

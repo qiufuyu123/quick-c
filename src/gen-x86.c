@@ -154,7 +154,7 @@ void emit_restorersp(module_t *v){
 
 u64 emit_offset_stack(module_t *v){
     u64 stack_needed = BYTE_ALIGN(v->pushpop_stack,16);
-    printf("stack should be:%x, but now it is:%x\n",stack_needed,v->pushpop_stack);
+    // printf("stack should be:%x, but now it is:%x\n",stack_needed,v->pushpop_stack);
     u64 offset = stack_needed - v->pushpop_stack;
     if(offset)
         emit_offsetrsp(v, offset, 1);
@@ -386,12 +386,12 @@ void emit_unary(module_t *v,char r, char type){
         emit(v, r>=REG_R8?r-REG_R8+0xc8:r-REG_AX+0xc8);
     }
 }
-void emit_binary(module_t *v,char dst,char src, char type){
+void emit_binary(module_t *v,char dst,char src, char type,char opwide){
     
-    emit_rm(v, dst, src, 0b11000000, type == BOP_CMP?0x39:
+    emit_rm(v, dst, src, 0b11000000, type == BOP_CMP?((opwide ==TP_I8 || opwide == TP_U8)?0x38:0x39):
                                             type == BOP_OR?0x09:
                                             type == BOP_AND?0x21:
-                                            0x31,TP_U64);
+                                            0x31,opwide);
 }
 // void emit_xor_reg(module_t *v,c)
 #endif

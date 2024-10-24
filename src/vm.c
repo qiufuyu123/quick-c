@@ -10,16 +10,19 @@
 #include <sys/mman.h>
 #include <sys/types.h>
 
+extern flgs_t glo_flag;
+
 void panic_oom(const char *msg){
     printf("VM: %s: OOM\n",msg);
     exit(1);
 }
 
+
 void module_pack_jit(module_t*v){
-    v->jit_compiled_len = 4096*8;
-    u64 len = 4096*8;
+    v->jit_compiled_len = 4096*glo_flag.jit_pg_no;
+
     char *memory = mmap(NULL,             // address
-                      len,             // size
+                      v->jit_compiled_len,             // size
                       PROT_READ | PROT_WRITE | PROT_EXEC,
                       MAP_PRIVATE | MAP_ANONYMOUS,
                       -1,               // fd (not used here)
@@ -116,7 +119,7 @@ function_frame_t *function_new(u64 ptr){
     return r;
 }
 
-var_t* var_new_base(char type,u64 v,int ptr,bool isglo,proto_t* prot){
+var_t* var_new_base(char type,u64 v,int ptr,bool isglo,proto_t* prot,bool isarr){
     var_t* r= malloc(sizeof(var_t));
     if(!r)
         panic_oom("Fail to alloc var");
@@ -125,6 +128,7 @@ var_t* var_new_base(char type,u64 v,int ptr,bool isglo,proto_t* prot){
     r->ptr_depth = ptr;
     r->prot = prot;
     r->isglo = isglo;
+    r->is_arr = isarr;
     return r;
 
 }
@@ -285,13 +289,14 @@ u64 module_get_func(module_t*v, char *name){
     return ((function_frame_t*)var->base_addr)->ptr;
 }
 
-proto_sub_t* subproto_new(int offset,char builtin,proto_t*prot,int ptrdepth){
+proto_sub_t* subproto_new(int offset,char builtin,proto_t*prot,int ptrdepth,bool isarr){
     proto_sub_t* t = malloc(sizeof(proto_sub_t));
     t->offset = offset;
     t->type = prot;
     t->builtin=builtin;
     t->ptr_depth=ptrdepth;
     t->impl = 0;
+    t->is_arr = isarr;
     return t;
 }
 

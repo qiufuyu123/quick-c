@@ -17,9 +17,18 @@ u8 test_loop(){
     return 0;
 }
 
+typedef struct{
+    u64 a;
+    u64 b;
+    u8 c[36];
+}test_t;
 
 u8 main(){
-    printf("result %d",test(6));
+    test_t tt;
+    printf("result %d\n",test(6));
+    i8 c = -1;
+    printf("i8 %x\n",c<0);
+    printf("offset :%d\n size:%d\n", offsetof(test_t,b),sizeof(test_t));
     test_loop();
     return 0;
 }

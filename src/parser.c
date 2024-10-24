@@ -17,6 +17,17 @@
 
 static jmp_buf err_callback;
 extern void gen_rel_jmp(parser_t *p, i32 *flg, u64 target);
+
+void output_surrounding(parser_t *p){
+    int col = p->l->cursor - p->l->col+1;
+
+    printf("Parser: Line(%d) Col(%d)\nNear:%s\n\033[31m",p->l->line,col,lex_get_line(p->l));
+    for (int i = 0; i<col-1; i++) {
+        printf("~");
+    }
+    printf("^\033[0m\n");
+}
+
 void trigger_parser_err(parser_t* p,const char *s,...){
     va_list va;
     char buf[100]={0};
@@ -27,18 +38,20 @@ void trigger_parser_err(parser_t* p,const char *s,...){
     if(p->l->tk_now.type == TK_IDENT){
         memcpy(bufname, &p->l->code[p->l->tk_now.start],p->l->tk_now.length);
     }
-    int col = p->l->cursor - p->l->col+1;
-    printf("Parser: Line(%d) Col(%d)\nNear:%s\n\033[31m",p->l->line,col,lex_get_line(p->l));
-    for (int i = 0; i<col-1; i++) {
-        printf("~");
-    }
-    printf("^\033[0m\n");
+    output_surrounding(p);
     printf("Error: %s('%s')\n",buf,bufname);
     // exit(1);
     glo_sym_debug(&p->m->sym_table);
     longjmp(err_callback, 1);
 }
 
+int token2num(parser_t *p){
+    token_t num = lexer_next(p->l);
+        if(num.type != TK_INT){
+            trigger_parser_err(p, "Array init must be a integer token!");
+        }
+    return num.integer;
+}
 
 var_t* var_exist(parser_t*p){
     var_t *v = var_exist_glo(p);
@@ -121,7 +134,7 @@ int arg_decl(parser_t *p,int offset,hashmap_t *dst,char *btin,bool is_decl){
     if(!is_decl){
         return sz;
     }
-    var_t *r = var_new_base(builtin, offset+sz, ptr_depth, 0, type);
+    var_t *r = var_new_base(builtin, offset+sz, ptr_depth, 0, type,0);
     token_t name = p->l->tk_now;
     if(!hashmap_get(dst, &p->l->code[name.start], name.length)){
         hashmap_put(dst, &p->l->code[name.start], name.length, r);
@@ -140,10 +153,21 @@ int proto_decl(parser_t *p,int offset,hashmap_t *dst){
     proto_t *type;
     int sz = def_stmt(p, &ptr_depth, &builtin, &type,NULL,1);
     token_t name = p->l->tk_now;
+    int arr = 0;
+    if(lexer_skip(p->l, '[')){
+        lexer_next(p->l);
+        arr = token2num(p);
+        lexer_expect(p->l, ']');
+    }
+    if(arr){
+        sz = sz*arr;
+        ptr_depth ++;
+    }
     if(dst){
-        proto_sub_t *prot = subproto_new(offset,builtin,type,ptr_depth);    
+        proto_sub_t *prot = subproto_new(offset,builtin,type,ptr_depth,arr!=0);    
         hashmap_put(dst, &p->l->code[name.start], name.length, prot);
     }
+    
     return sz;
 }
 
@@ -215,7 +239,7 @@ var_t* var_def(parser_t*p, bool is_extern,char builtin, proto_t *prot){
     int sz = def_stmt(p, &ptr_depth, &builtin, &prot,NULL,1);
     var_t* nv = var_exist(p);
     if(nv && !var_is_extern(nv)){
-        if(is_extern){
+        if(is_extern ){
             // ignore this line...
             lexer_skip_till(p->l, ';');
             return nv;
@@ -240,7 +264,7 @@ var_t* var_def(parser_t*p, bool is_extern,char builtin, proto_t *prot){
         }
             
             if(!nv){  
-                nv = var_new_base(TP_FUNC, 0, 1,1,prot);
+                nv = var_new_base(TP_FUNC, 0, 1,1,prot,0);
                 hashmap_put(&p->m->sym_table, &p->l->code[name.start], name.length, nv);
             }
             //printf("Extern function!\n");
@@ -266,7 +290,7 @@ var_t* var_def(parser_t*p, bool is_extern,char builtin, proto_t *prot){
                 emit_mov_r2r(p->m, REG_BP, REG_SP); // mov rbp,rsp
                 preserv = emit_offsetrsp(p->m, 128,1); // use 128 make sure code generate use 4bytes for length
             }
-            offset = solve_func_sig(p, func,is_extern == 0);
+            offset = solve_func_sig(p, func,is_extern == 0 && p->isbare == 0);
             lexer_next(p->l);
             func->ret_type.builtin = builtin;
             func->ret_type.type = prot;
@@ -305,49 +329,56 @@ var_t* var_def(parser_t*p, bool is_extern,char builtin, proto_t *prot){
     }else if(lexer_skip(p->l, '[')){
         // u8 a[8];
         lexer_next(p->l);
-        token_t num = lexer_next(p->l);
-        if(num.type != TK_INT){
-            trigger_parser_err(p, "Array init must be a integer token!");
-        }
-        arr = num.integer;
+        arr =  token2num(p);
         lexer_expect(p->l, ']');
         
     }
     if(!nv){
-        nv = var_new_base(func?TP_FUNC:builtin, 0, func?1:ptr_depth,p->isglo,prot);
+        nv = var_new_base(func?TP_FUNC:builtin, 0, func?1:ptr_depth,p->isglo,prot,0);
         if(nv->isglo){
             hashmap_put(&p->m->sym_table, &p->l->code[name.start], name.length, nv);
         }else {
             hashmap_put(&p->m->local_sym_table, &p->l->code[name.start], name.length, nv);
         }
-        if(is_extern){
-            //printf("Extern variable\n");
-            return nv;
-        }
+       
+    }
+    if(is_extern){
+        //printf("Extern variable\n");
+        return nv;
     }
     if(p->isglo){
         //printf("variable alloc %d bytes on heap!\n",arr?arr*sz:sz);
         nv->base_addr = func?(u64)func:reserv_data(p->m, arr?arr*sz:sz);
         if(arr){
-            u64* ptr = (u64*)reserv_data(p->m, 8);
-            *ptr = nv->base_addr;
-            nv->base_addr = (u64)ptr;
-        } 
+            nv->is_arr = 1;
+        }
+        // if(arr){
+        //     printf("reloc");
+        //     u64* ptr = (u64*)reserv_data(p->m, 8);
+        //     char tmp = acquire_reg(p);
+        //     emit_loadglo(p->m, (u64)ptr, tmp, 0);
+        //     char tmp2 = acquire_reg(p);
+        //     emit_loadglo(p->m, nv->base_addr, tmp2, 0);
+        //     emit_mov_r2addr(p->m, tmp, tmp2, TP_U64);
+        //     release_reg(p, tmp);
+        //     release_reg(p, tmp2);
+        //     // *ptr = nv->base_addr;
+        //     nv->base_addr = (u64)ptr;
+        // } 
     }else {
         //printf("variable alloc %d bytes on stack!\n",arr?arr*sz:sz);
         // notice here:
-
+        if(arr){
+            nv->is_arr = 1;
+        }
         p->m->stack+=(arr?arr*sz:sz);
         nv->base_addr = p->m->stack;
-        if(arr){
-            u32 offset = p->m->stack;
-            p->m->stack+=8;
-            nv->base_addr = p->m->stack;
-            emit_storelocaddr(p->m, nv->base_addr, offset);
-        }            
-    }
-    if(arr){
-        nv->ptr_depth++;
+        // if(arr){
+        //     u32 offset = p->m->stack;
+        //     p->m->stack+=8;
+        //     nv->base_addr = p->m->stack;
+        //     emit_storelocaddr(p->m, nv->base_addr, offset);
+        // }            
     }
     return nv;
 
@@ -461,8 +492,10 @@ char prep_rax(parser_t *p,var_t inf){
         emit_push_reg(p->m, REG_AX);
         need_pop = 1;
     }
-    if(inf.reg_used != REG_AX)
+    if(inf.reg_used != REG_AX){
         emit_mov_r2r(p->m, REG_AX,inf.reg_used);
+        release_reg(p, inf.reg_used);
+    }
     return need_pop;
 }
 
@@ -499,6 +532,56 @@ void stmt(parser_t *p,bool expect_end){
         
     }else if(tt == TK_ENUM){
         
+    }else if(tt == TK_JIT){
+        printf("jit");
+        lexer_expect(p->l, '(');
+        lexer_next(p->l);
+        if(p->l->tk_now.type != TK_IDENT){
+            trigger_parser_err(p, "Expect embedded asm opcodes!");
+        }
+        if(!strncmp(&p->l->code[p->l->tk_now.start], "invlpg", 6)){
+            lexer_expect(p->l, ',');
+            lexer_next(p->l);
+            var_t left={0,0,0,0,0};
+            expr(p,&left , OPP_Inc);
+            printf("after 1");
+            if(left.reg_used != REG_AX){
+                emit_push_reg(p->m, REG_AX);
+            }
+            emit_mov_r2r(p->m, REG_AX, left.reg_used);
+            emit(p->m, 0x0f);emit(p->m, 0x01);emit(p->m,0x38);
+            if(left.reg_used != REG_AX){
+                emit_pop_reg(p->m, REG_AX);
+            }
+            lexer_expect(p->l, ')');
+            //return;
+            printf("final!");
+        }else if(!strncmp(&p->l->code[p->l->tk_now.start], "sti", 3)){
+            emit(p->m, 0xfb);
+            lexer_expect(p->l, ')');
+        }else if(!strncmp(&p->l->code[p->l->tk_now.start], "cli", 3)){
+            emit(p->m, 0xfa);
+            lexer_expect(p->l, ')');
+        }else if(!strncmp(&p->l->code[p->l->tk_now.start], "bin", 3)){
+            lexer_expect(p->l, ',');
+            token_t nxt = lexer_next(p->l);
+            while (nxt.type != ')') {
+                if(nxt.type != TK_INT){
+                    trigger_parser_err(p, "_jit_ bin needs values ONLY!");
+                }
+                if((u64)nxt.integer > 255){
+                    trigger_parser_err(p, "_jit_ bin must be less than 255(0xff)");
+                }
+                emit(p->m, (char)nxt.integer);
+                nxt = lexer_next(p->l);
+                if(nxt.type == ','){
+                    nxt = lexer_next(p->l);
+                }
+            }
+        }
+        else {
+            trigger_parser_err(p, "Unknow asm opcode!");
+        }
     }
     else if(tt == TK_RETURN){
         if(p->isglo){
@@ -534,7 +617,8 @@ void stmt(parser_t *p,bool expect_end){
             else:end
 
         */
-        emit(p->m, 0x3c);emit(p->m,0x00); // cmp al,0
+        emit(p->m, 0x48);emit(p->m, 0x83);emit(p->m, 0xf8);emit(p->m, 0x00); // cmp rax,0
+        // emit(p->m, 0x3c);emit(p->m,0x00); // cmp al,0
         if(need_pop)
             emit_pop_reg(p->m, REG_AX);
         emit(p->m, 0x75);emit(p->m,0x05);  // jne +0x05+
@@ -686,7 +770,7 @@ void stmt(parser_t *p,bool expect_end){
         if(pwd)
             memcpy(pwd_buf, &p->l->code[start], pwd-start+1);
         //printf("NOW #include work on %s\n",pwd_buf);
-        mod = module_compile(path, &p->l->code[last_name], len-(last_name-start), 1,p->m);
+        mod = module_compile(path, &p->l->code[last_name], len-(last_name-start), 1,p->m,0);
         if(!mod){
             trigger_parser_err(p, "Fail to #include:%s\n",path);
         }
@@ -710,6 +794,19 @@ void stmt(parser_t *p,bool expect_end){
         }
         if(!strncmp(&p->l->code[name.start], "ignore", name.length)){
             p->isend = 1;
+            return;
+        }else if(!strncmp(&p->l->code[name.start], "barefunc", name.length)){
+            p->isbare = 1;
+            return;
+        }else if(!strncmp(&p->l->code[name.start], "bareend", name.length)){
+            p->isbare = 0;
+            return;
+        }
+        else{
+            while (p->l->code[p->l->cursor] != '\n') {
+                p->l->cursor++;
+            }
+            p->l->cursor++;
             return;
         }
     }else if(tt == TK_DEFINE){
@@ -754,6 +851,7 @@ void parser_start(module_t *m,Lexer_t* lxr){
     p.isglo = TRUE;
     p.caller_regs_used = 0;
     p.isend = 0;
+    p.isbare = 0;
     // p.reg_table.reg_used={0};
     memset(p.reg_table.reg_used, 0, 16);
     p.reg_table.next_free=REG_AX;
@@ -771,7 +869,7 @@ void parser_start(module_t *m,Lexer_t* lxr){
 }
 
 
-module_t* module_compile(char *path,char *module_name, int name_len,bool is_module,module_t *previous){
+module_t* module_compile(char *path,char *module_name, int name_len,bool is_module,module_t *previous, char is_last){
     Lexer_t lex;
 
     module_t *mod = previous?previous:calloc(1, sizeof(module_t));
@@ -815,7 +913,7 @@ module_t* module_compile(char *path,char *module_name, int name_len,bool is_modu
         parser_start(mod, &lex);
         free(buf);
         lexer_free(&lex);
-        if(!previous){
+        if(is_last){
             emit(mod, 0xc9); // leave
             emit(mod, 0xc3); // ret
         }
@@ -826,6 +924,9 @@ module_t* module_compile(char *path,char *module_name, int name_len,bool is_modu
         err_callback[0]=old[0];
         lexer_free(&lex);
         free(buf);
+        FILE *f = fopen("core.bin", "wc");
+      fwrite(mod->jit_compiled, mod->jit_cur, 1, f);
+      fclose(f);
         return 0;
     }
 }

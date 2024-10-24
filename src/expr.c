@@ -39,7 +39,7 @@ char acquire_reg(parser_t *p){
     for (int i = 0; i<16; i++) {
         if(VALID_REG(i)&&(p->reg_table.reg_used[i] == 0)){
             p->reg_table.reg_used[i] = 1;
-            printf("alloc %d\n",i);
+            //printf("alloc %d\n",i);
             return i;
         }
     }
@@ -222,9 +222,8 @@ void assignment(parser_t *p,var_t *v){
 }
 
 void array_visit(parser_t*p,var_t *inf,bool leftval){
-    if(!inf->ptr_depth){
-        trigger_parser_err(p, "'[' must be applied on a pointer!");
-    }
+
+    emit_push_reg(p->m, REG_DI);
     emit_push_reg(p->m, REG_AX);
     emit_push_reg(p->m, REG_BX);
     var_t left;
@@ -233,15 +232,19 @@ void array_visit(parser_t*p,var_t *inf,bool leftval){
     emit_mov_r2r(p->m, REG_AX, left.reg_used);
     //release_reg(p,left.reg_used);
     lexer_expect(p->l, ']');
-    emit_load(p->m, REG_BX, inf->ptr_depth-1?8:inf->type==TP_CUSTOM?inf->prot->len:var_get_base_len(inf->type));
+    emit_load(p->m, REG_BX, inf->ptr_depth?8:inf->type==TP_CUSTOM?inf->prot->len:var_get_base_len(inf->type));
+    emit_push_reg(p->m, REG_DX);
     emit_mulrbx(p->m);
-    emit_mov_r2r(p->m, left.reg_used, REG_AX);
+    emit_pop_reg(p->m, REG_DX);
+    emit_mov_r2r(p->m, REG_DI, REG_AX);
     //emit_mov_r2r(p->m, REG_BX, REG_AX);
     emit_pop_reg(p->m, REG_BX);
     emit_pop_reg(p->m, REG_AX);
-    emit_addr2r(p->m, inf->reg_used, left.reg_used);
+    emit_addr2r(p->m, inf->reg_used, REG_DI);
+    emit_pop_reg(p->m, REG_DI);
+    
     release_reg(p, left.reg_used);
-    inf->ptr_depth--;
+    //inf->ptr_depth--;
 
 }
 
@@ -292,13 +295,15 @@ void expr_ident(parser_t* p, var_t *inf){
 
 
 int token2opp(Tk type){
-    static int opp_map[24][2] ={
+    static int opp_map[26][2] ={
         {'+',OPP_Add},
         {'-',OPP_Sub},
         {'*',OPP_Mul},
         {'/',OPP_Div},
         {'%',OPP_Mod},
         {'=',OPP_Assign},
+        {TK_ADD_ASSIGN,OPP_Assign},
+        {TK_SUB_ASSIGN,OPP_Assign},
         {'&',OPP_And},
         {'|',OPP_Or},
         {'^',OPP_Xor},
@@ -318,7 +323,7 @@ int token2opp(Tk type){
         {TK_LSHR,OPP_Shr},
         {'(',OPP_Fcall}
     };
-    for (int i = 0; i<24; i++) {
+    for (int i = 0; i<26; i++) {
         if(opp_map[i][0] == type){
             return opp_map[i][1];
         }
@@ -328,7 +333,8 @@ int token2opp(Tk type){
 
 bool is_numeric(parser_t *p,var_t left,var_t right){
     if(left.ptr_depth || right.ptr_depth){
-        printf("WARN: Operating between pointers are dangerous!\n");
+        //output_surrounding(p);
+        printf("WARN: Operating between pointers are different from C rules!\n");
     }
     return (left.ptr_depth || left.type < TP_INTEGER) && (right.ptr_depth || right.type < TP_INTEGER);
 }
@@ -344,7 +350,7 @@ char load_var(parser_t *p,var_t *left){
     }else {
         //emit_mov_r2r(p->m, REG_BX, REG_AX);
         // load_b2a(p, left.ptr_depth?TP_U64:left.type);
-        emit_binary(p->m, newr, newr, BOP_XOR);
+        emit_binary(p->m, newr, newr, BOP_XOR,TP_U64);
         emit_mov_addr2r(p->m, newr, left->reg_used, left->ptr_depth?TP_U64:left->type);
     }
     // release_reg(p, left->reg_used);
@@ -363,6 +369,10 @@ bool is_type(parser_t *p){
     if(hashmap_get(&p->m->prototypes, &p->l->code[name.start], name.length))
         return 1;
     return 0;
+}
+
+bool is_signed(char left, char right){
+    return (left == TP_I8 || left == TP_I16 || left == TP_I32 || left == TP_I64);
 }
 
 bool expr(parser_t *p, var_t *inf,int ctx_priority){
@@ -452,14 +462,43 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
             func_call(p, &left);
             is_left_val = 0;
         }else if(lexer_skip(p->l, '[')){
-            emit_mov_addr2r(p->m, left.reg_used, left.reg_used,TP_U64);
+            if(left.is_arr == 0){
+                if(left.ptr_depth){
+                    emit_mov_addr2r(p->m, left.reg_used, left.reg_used,TP_U64);
+                    left.ptr_depth--;
+                    printf("dec ptr to :%d\n",left.ptr_depth);
+                }else{
+                    trigger_parser_err(p, "array visit must be a pointer or array");
+                }
+            }
+            left.is_arr = 0;
             lexer_next(p->l);
             array_visit(p, &left, 0);
             //left.ptr_depth--;
             need_load = 1;
         }else {
-            need_load = 1;
+            if(left.is_arr==0)
+                need_load = 1;
         }
+    }
+    else if(type == TK_OFFSETOF){
+        printf("offsetof!\n");
+        lexer_expect(p->l, '(');
+        lexer_next(p->l);
+        if(!is_type(p)){
+            trigger_parser_err(p, "Require a type here!");
+        }
+        if(p->l->tk_now.type != TK_IDENT){
+            trigger_parser_err(p, "Require a custom type!");
+        }
+        proto_t *type = hashmap_get(&p->m->prototypes, &p->l->code[p->l->tk_now.start], p->l->tk_now.length);
+        lexer_expect(p->l, ',');
+        lexer_next(p->l);
+        int offset= struct_offset(p, type, p->l->tk_now, 0);
+        lexer_expect(p->l, ')');
+        char r = acquire_reg(p);
+        emit_load(p->m, r, offset);
+        left.reg_used = r;
     }
     else if(type == TK_SIZEOF){
         //lexer_next(p->l);
@@ -556,6 +595,28 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
             emit_pop_reg(p->m, newr);
             need_load = 0;
             is_left_val = 0;
+        }else if(type == TK_ADD_ASSIGN || type == TK_SUB_ASSIGN){
+            printf("+=/-=!\n");
+            // add/minus, but return the original value
+            if(!need_load){
+                trigger_parser_err(p, "Inc/Dec must be applied to a left value!");
+            }
+            char newr = load_var(p, &left);
+            emit_push_reg(p->m,newr);
+            lexer_next(p->l);
+            expr(p, &right, OPP_Inc);
+            if(type == TK_ADD_ASSIGN){
+                emit_addr2r(p->m, newr, right.reg_used);
+            }else {
+                emit_minusr2r(p->m, newr, right.reg_used);
+            }
+            release_reg(p, right.reg_used);
+            assign_var(p, &left,newr);
+            release_reg(p, left.reg_used);
+            left.reg_used = newr;
+            emit_pop_reg(p->m, newr);
+            need_load = 0;
+            is_left_val = 0;
         }
         else if(type == '('){
             func_call(p, &left);
@@ -563,15 +624,28 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
         }
         else if(type == '['){
             //lexer_next(p->l);
-            emit_mov_addr2r(p->m, left.reg_used, left.reg_used,TP_U64);
+            // if(left.ptr_depth && need_load){
+            //     emit_mov_addr2r(p->m,left.reg_used,left.reg_used,TP_U64);
+            // }
+            
+            if(left.is_arr == 0){
+                if(left.ptr_depth){
+                    emit_mov_addr2r(p->m,left.reg_used,left.reg_used,TP_U64);
+                    left.ptr_depth --;
+                }else{
+                    trigger_parser_err(p, "array visit needs a pointer!");
+                }
+            }
             array_visit(p, &left, 0);
             need_load = 1;
+            left.is_arr = 0;
         }else if(type == '.'){
             
             if(left.ptr_depth && need_load){
+                // printf("struct visit de-ptr!\n");
                 emit_mov_addr2r(p->m,left.reg_used,left.reg_used,TP_U64);
             }
-            if(need_load) need_load = 0;
+            need_load = 0;
             token_t name_token = lexer_next(p->l);
             if(name_token.type != TK_IDENT){
                 trigger_parser_err(p, "Need a word after '.'");
@@ -587,8 +661,10 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
             left.prot = pro_sub.type;
             left.type = pro_sub.builtin;
             left.ptr_depth = pro_sub.ptr_depth;
+            left.is_arr = pro_sub.is_arr;
             emit_add_regimm(p->m, left.reg_used, r);
-            need_load = 1;
+            if(!left.is_arr)
+                need_load = 1;
         }
         else {
     
@@ -676,14 +752,15 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
                     emit_push_reg(p->m, REG_AX);
                     need_pop = 1;
                 }
-                emit_binary(p->m, left.reg_used, right.reg_used, BOP_CMP);
+                char isSigned = is_signed(left.type, right.type);
+                emit_binary(p->m, left.reg_used, right.reg_used, BOP_CMP,left.type);
                 emit(p->m,0x0f);
-                emit(p->m, lt ? 0x9c /* < */ :
-                        gt ? 0x9f /* > */ :
+                emit(p->m, lt ? (isSigned? 0x9c:0x92) /* < */ :
+                        gt ? (isSigned? 0x9f:0x97) /* > */ :
                                 ne ? 0x95 /* != */ :
                                     eql ? 0x94 /* == */ :
-                                        fle ? 0x9e /* <= */ :
-                                                0x9d /* >= */);
+                                        fle ? (isSigned?0x9e:0x96) /* <= */ :
+                                                isSigned? 0x9d:0x93 /* >= */);
                 
                     
                 emit(p->m, 0xc0); // setX al
@@ -708,7 +785,7 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
                 // emit(p->m, 0x48);
                 // emit(p->m, and?0x21:or?0x09:0x31);
                 // emit(p->m, 0xd8);
-                emit_binary(p->m, left.reg_used, right.reg_used, and?BOP_AND:or?BOP_OR:BOP_XOR);
+                emit_binary(p->m, left.reg_used, right.reg_used, and?BOP_AND:or?BOP_OR:BOP_XOR,TP_U64);
                 release_reg(p, right.reg_used);
 
             }else if(type == TK_LSHL || type == TK_LSHR){

@@ -46,6 +46,7 @@ typedef struct{
     int offset;
     int ptr_depth;
     char builtin;
+    bool is_arr;
     u64 impl;
     proto_t *type;
 }proto_sub_t;
@@ -56,6 +57,7 @@ typedef struct{
     proto_t *prot; // prototype
     int ptr_depth; // pointer 
     bool isglo;
+    bool is_arr;
     char reg_used;
 }var_t;
 
@@ -119,7 +121,7 @@ int module_add_string(module_t *m,vm_string_t str);
 
 void module_add_reloc(module_t *m, u32 addr);
 
-var_t* var_new_base(char type,u64 v,int ptr,bool isglo,proto_t *prot);
+var_t* var_new_base(char type,u64 v,int ptr,bool isglo,proto_t *prot, bool is_arr);
 
 proto_t* proto_new(int base_len);
 
@@ -129,7 +131,7 @@ void proto_debug(proto_t *type);
 
 u64 reserv_data(module_t *v,u32 size);
 
-proto_sub_t* subproto_new(int offset,char builtin,proto_t*prot,int ptrdepth);
+proto_sub_t* subproto_new(int offset,char builtin,proto_t*prot,int ptrdepth,bool isarr);
 
 void emit(module_t *v,char op);
 
@@ -221,5 +223,5 @@ void restore_caller_reg(module_t *v,int no);
 
 void emit_unary(module_t *v,char r, char type);
 
-void emit_binary(module_t *v,char dst,char src, char type);
+void emit_binary(module_t *v,char dst,char src, char type,char opwide);
 #endif
