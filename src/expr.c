@@ -604,7 +604,7 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
             char newr = load_var(p, &left);
             emit_push_reg(p->m,newr);
             lexer_next(p->l);
-            expr(p, &right, OPP_Inc);
+            expr(p, &right, OPP_Assign);
             if(type == TK_ADD_ASSIGN){
                 emit_addr2r(p->m, newr, right.reg_used);
             }else {
@@ -637,12 +637,13 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
                 }
             }
             array_visit(p, &left, 0);
-            need_load = 1;
+            if(left.type != TP_CUSTOM)
+                need_load = 1;
             left.is_arr = 0;
         }else if(type == '.'){
             
             if(left.ptr_depth && need_load){
-                // printf("struct visit de-ptr!\n");
+                printf("struct visit de-ptr!\n");
                 emit_mov_addr2r(p->m,left.reg_used,left.reg_used,TP_U64);
             }
             need_load = 0;

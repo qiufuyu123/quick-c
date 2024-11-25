@@ -1,15 +1,26 @@
-#include "../../libqc/io.qh"
+// #include "../../libqc/io.qh"
+
 typedef struct{
-    i8 name[64];
-}test_t;
-test_t t1;
-t1.name[0] = 'h';
-t1.name[1] = 'e';
-t1.name[2] = 0;
+  i32 a;
+  u64 b;
+}t1_t;
 
-i8 main(){
-    test_t *ptr = &t1;
-    printf("0x%llx %llx %c\n",&t1.name[0],t1.name,t1.name[1]);
-    printf("0x%llx %llx\n",&ptr->name[0],ptr->name);
+typedef struct{
+  i32 a;
+  i32 b;
+  t1_t tt[1];
+}t2_t;
 
+i8 main(u32 bus,u32 slot,u32 func){
+
+  t2_t aaa;
+  t2_t *ptr = &aaa;
+  ptr.a=1;
+  ptr.b=2;
+  ptr->tt[0].a=3;
+  ptr->tt[0].b=4;
+  &ptr->tt[1];
+  // printf("%x %x\n",ptr.a,ptr.b);
+  // printf("%x %x\n",ptr->tt[0].a,ptr->tt[0].b  );
+  return 1;
 }

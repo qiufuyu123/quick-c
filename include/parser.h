@@ -12,6 +12,7 @@ typedef struct{
     reg_alloc_table_t reg_table;
     u8 caller_regs_used;
     u64 loop_reloc;
+    u64 loop_continue_reloc;
     bool isglo;
     bool isend;
     bool isbare;

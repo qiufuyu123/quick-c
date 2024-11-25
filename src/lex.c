@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdarg.h>
 static hashmap_t const_table;
+token_t line_macro;
 // Magic prime number for FNV hashing.
 #define FNV_64_PRIME ((u64) 0x100000001b3ULL)
 u64 hash_string(char *string, int length) {
@@ -52,7 +53,7 @@ static void lex_whitespace(Lexer_t *lxr) {
 			}
             lxr->col = lxr->cursor;
 			lxr->line++;
-            hashmap_put(&const_table, "_LINE_", 6, (void*)lxr->line);
+            // hashmap_put(&const_table, "_LINE_", 6, (void*)lxr->line);
 		}
 		lxr->cursor++;
 	}
@@ -89,10 +90,12 @@ static void trigger_lex_error(Lexer_t *lxr, const char * msg,...){
 }
 
 void lex_def_const(Lexer_t *lxr, token_t name, token_t val){
-    if(val.type != TK_INT){
-        trigger_lex_error(lxr, "#define/const expect a number const!");
-    }
-    hashmap_put(&const_table, &lxr->code[name.start], name.length, (void*)val.integer);
+    // if(val.type != TK_INT){
+    //     trigger_lex_error(lxr, "#define/const expect a number const!");
+    // }
+    token_t *copy = calloc(1, sizeof(token_t));
+    *copy = val;
+    hashmap_put(&const_table, &lxr->code[name.start], name.length, (void*)copy);
 }
 
 char lex_ifdef_const(Lexer_t *lxr, token_t name){
@@ -155,12 +158,12 @@ static token_t lex_ident(Lexer_t *lxr) {
 	lxr->tk_now.length = lxr->cursor - lxr->tk_now.start;
 	// A list of reserved keywords and their corresponding token values
 	static char *keywords[] = {
-		 "if", "else", "#ifdef", "#endif", "while", "for", "typedef", "struct","#include","#pragma","#define","extern","break","true",
+		 "if", "else", "#ifdef", "#endif", "while", "for", "typedef", "struct","#include","#pragma","#define","extern","break","continue","true",
 		"false", "#ifndef", "i8","u8","i16","u16","i32","u32",
         "i64","u64","return","sizeof","enum","__jit__","offsetof",NULL,
 	};
 	static Tk keyword_tks[] = {
-		 TK_IF, TK_ELSE, TK_IFDEF, TK_ENDIF, TK_WHILE, TK_FOR, TK_TYPEDEF,TK_STRUCT,TK_IMPORT,TK_PRAGMA,TK_DEFINE,TK_EXTERN,TK_BREAK,
+		 TK_IF, TK_ELSE, TK_IFDEF, TK_ENDIF, TK_WHILE, TK_FOR, TK_TYPEDEF,TK_STRUCT,TK_IMPORT,TK_PRAGMA,TK_DEFINE,TK_EXTERN,TK_BREAK,TK_CONTINUE,
 		TK_TRUE, TK_FALSE, TK_IFNDEF,TK_I8,TK_U8,TK_I16,TK_U16,TK_I32,TK_U32,TK_I64
         ,TK_U64,TK_RETURN,TK_SIZEOF,TK_ENUM,TK_JIT,TK_OFFSETOF
 	};
@@ -175,10 +178,10 @@ static token_t lex_ident(Lexer_t *lxr) {
 		}
 	}
     
-    u64 macro_data = 0;
+    token_t *macro_data;
     if(lxr->need_macro && hashmap_exist(&const_table, &lxr->code[lxr->tk_now.start], lxr->tk_now.length, (void*)&macro_data)){
-        lxr->tk_now.type = TK_INT;
-        lxr->tk_now.integer = macro_data;
+       lxr->tk_now.type = macro_data->type;
+       lxr->tk_now.integer = macro_data->integer;
     }else {
         // Didn't find a matching keyword, so we have an identifier
         lxr->tk_now.type = TK_IDENT;
@@ -200,7 +203,10 @@ void lexer_init(Lexer_t *lex,char *path, char *code){
     lex->need_macro = 1;
     if(!const_table.data )
         hashmap_create(2,&const_table);
-    hashmap_put(&const_table, "_LINE_", 6, (void*)lex->line);
+    // token_t *now_line = calloc(1, sizeof(token_t));
+    // line_macro.type = TK_INT;
+    // line_macro.integer = lex->line;
+    // hashmap_put(&const_table, "_LINE_", 6, (void*)now_line);
 
 }
 

@@ -650,6 +650,14 @@ void stmt(parser_t *p,bool expect_end){
         
         return;
     }
+    else if(tt == TK_CONTINUE){
+        if(p->loop_continue_reloc == 0){
+            trigger_parser_err(p, "Continue should use inside a loop!");
+        }
+        i32 *addr = emit_reljmp_flg(p->m);
+        // u64 *addr = emit_jmp_flg(p->m);
+        gen_rel_jmp(p, addr, p->loop_continue_reloc);
+    }
     else if(tt == TK_BREAK){
         if(p->loop_reloc == 0){
             trigger_parser_err(p, "Break should use inside a loop!");
@@ -679,10 +687,12 @@ void stmt(parser_t *p,bool expect_end){
         i32* els_rel = emit_reljmp_flg(p->m);
         //module_add_reloc(p->m, (u64)els - (u64)p->m->jit_compiled);
         u64 old_break = p->loop_reloc;
+        u64 old_continue = p->loop_continue_reloc;
         p->loop_reloc = break_adr;
-
+        p->loop_continue_reloc = top_adt;
         stmt_loop(p);
         p->loop_reloc = old_break;
+        p->loop_continue_reloc = old_continue;
         i32 *loop_repeat_rel = emit_reljmp_flg(p->m);
         // module_add_reloc(p->m, (u64)loop_repeat - (u64)p->m->jit_compiled);
         gen_rel_jmp(p, loop_repeat_rel, top_adt);
@@ -707,23 +717,30 @@ void stmt(parser_t *p,bool expect_end){
         emit(p->m, 0x3c);emit(p->m,0x00); // cmp al,0
         if(need_pop)
             emit_pop_reg(p->m, REG_AX);
-        emit(p->m, 0x75);emit(p->m,0x05);  // je +0x05 +
+        emit(p->m, 0x75);emit(p->m,0x05*2);  // je +0x05*2 +
         u64 break_adr = (u64)jit_top(p->m);
         // u64* end_for = emit_jmp_flg(p->m);
         i32 *end_for_rel = emit_reljmp_flg(p->m);
+        u64 continue_adr = (u64)jit_top(p->m);
+        i32 *continue_for_rel = emit_reljmp_flg(p->m);
         // module_add_reloc(p->m, (u64)end_for - (u64)p->m->jit_compiled);
         lexer_expect(p->l, ';');  // exit condition
         Lexer_t old = *p->l;
         lexer_skip_till(p->l, '{');   
         lexer_expect(p->l, '{');   
         u64 old_break = p->loop_reloc;
+        u64 old_continue = p->loop_continue_reloc;
         p->loop_reloc = break_adr;
+        p->loop_continue_reloc = continue_adr;
+        
         stmt_loop(p);
         lexer_next(p->l);
         p->loop_reloc = old_break;
+        p->loop_continue_reloc = old_continue;
         Lexer_t backup = *p->l;
         *p->l = old;                 
         lexer_next(p->l);
+        gen_rel_jmp(p, continue_for_rel, (u64)jit_top(p->m));
         stmt(p,0);                            //increment...
         *p->l = backup;
         // u64* jmp_base = emit_jmp_flg(p->m);
@@ -812,8 +829,10 @@ void stmt(parser_t *p,bool expect_end){
     }else if(tt == TK_DEFINE){
         token_t name = lexer_next(p->l);
         token_t val={TK_INT,0,0,0,.integer=0};
-        if(lexer_skip(p->l, TK_INT)){
-            val = lexer_next(p->l);
+        token_t next_tk = lexer_peek(p->l);
+        if(next_tk.line == name.line){
+            val = next_tk;
+            lexer_next(p->l);
         }
         lex_def_const(p->l, name, val);
         return;
