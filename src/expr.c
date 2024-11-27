@@ -636,6 +636,7 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
                     trigger_parser_err(p, "array visit needs a pointer!");
                 }
             }
+            printf("visit an array with ptr depth:%d\n",left.ptr_depth);
             array_visit(p, &left, 0);
             if(left.type != TP_CUSTOM)
                 need_load = 1;

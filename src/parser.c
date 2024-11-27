@@ -161,7 +161,7 @@ int proto_decl(parser_t *p,int offset,hashmap_t *dst){
     }
     if(arr){
         sz = sz*arr;
-        ptr_depth ++;
+        //ptr_depth ++;
     }
     if(dst){
         proto_sub_t *prot = subproto_new(offset,builtin,type,ptr_depth,arr!=0);    

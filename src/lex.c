@@ -249,6 +249,23 @@ void lexer_match(Lexer_t *lex, Tk left, Tk right){
     }
 }
 
+int binary_op[14][3] ={
+    {'+','+',TK_ADD2},
+    {'+','=',TK_ADD_ASSIGN},
+    {'*','=',TK_MUL_ASSIGN},
+    {'/','=',TK_DIV_ASSIGN},
+    {'%','=',TK_MOD_ASSIGN},
+    {'<','=',TK_LE},
+    {'>','=',TK_GE},
+    {'=','=',TK_EQ},
+    {'!','=',TK_NEQ},
+    {'&','&',TK_AND},
+    {'|','|',TK_OR},
+    {'<','<',TK_LSHL},
+    {'>','>',TK_LSHR},
+    {'-','>','.'}
+};
+
 token_t lexer_next(Lexer_t *lex){
     lex->tk_now.col = lex->cursor - lex->col + 1;
     lex->tk_now.line = lex->line;
@@ -312,45 +329,25 @@ token_t lexer_next(Lexer_t *lex){
     // symbols
 
     //TODO: WTF trash codes...
-    switch (c) {
-        MULTI_CHAR_TK('<', '<', TK_LSHL)
-        MULTI_CHAR_TK('>', '>', TK_LSHR)
-        MULTI_CHAR_TK('-', '>', '.')
-    }
-    if(lex->tk_now.type != TK_LSHL && lex->tk_now.type != TK_LSHR && lex->tk_now.type != '.'){
-        switch (c) {
-            case '+':
-                MUTLI_SUB_TK('+',TK_ADD2)
-                else MUTLI_SUB_TK('=', TK_ADD_ASSIGN)
-            case '-':
-                MUTLI_SUB_TK('-',TK_MINUS2)
-                else MUTLI_SUB_TK('=',TK_SUB_ASSIGN)
-            MULTI_CHAR_TK('*', '=', TK_MUL_ASSIGN)
-            MULTI_CHAR_TK('/', '=', TK_DIV_ASSIGN)
-            MULTI_CHAR_TK('%', '=', TK_MOD_ASSIGN)
-            
-            MULTI_CHAR_TK('<', '=', TK_LE)
-            MULTI_CHAR_TK('>', '=', TK_GE)
-            MULTI_CHAR_TK('=', '=', TK_EQ)
-            MULTI_CHAR_TK('!', '=', TK_NEQ)
-            
-            MULTI_CHAR_TK('&', '&', TK_AND)
-            MULTI_CHAR_TK('|', '|', TK_OR)
-            default:
-                if(lex->code[lex->cursor] == '@'){
-                    lex->tk_now.type = TK_JIT;
-                }else{
-                    lex->tk_now.type = lex->code[lex->cursor];
-                }
-                lex->tk_now.length = 1;
-                lex->cursor++;
-                break;
+    for (int i =0; i<14; i++) {
+        if(c == binary_op[i][0] && lex->code[lex->cursor+1] == binary_op[i][1]){
+            lex->tk_now.length=2;
+            lex->tk_now.type = binary_op[i][2];
+            lex->cursor+=2;
+            break;
         }
     }
     if(lex->tk_now.type == 0){
-        lex->tk_now.type = c;
+        if(lex->code[lex->cursor] == '@'){
+            lex->tk_now.type = TK_JIT;
+        }else{
+            lex->tk_now.type = lex->code[lex->cursor];
+        }
+        lex->tk_now.length = 1;
         lex->cursor++;
+        
     }
+
     return lex->tk_now;
 }
 
