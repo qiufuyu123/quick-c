@@ -29,6 +29,6 @@ i32 main()
     printf("%llx --   %llx -- %llx\n",&t.v1[0],&t.v1[1],(&t.v1[1])-(&t.v1[0]));
     u64 a = &ptr.v2[1]-&ptr.v2[0];
     printf("%llx --   %llx -- %llx -- %llx\n",&ptr.v1[0],&ptr.v1[1],&ptr.v2[1]-&ptr.v2[0],a);
-
+    printf("'0' + 1 = '%c'\n",'0'+1);
     return a;
 }
