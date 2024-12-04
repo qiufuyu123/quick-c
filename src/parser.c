@@ -418,7 +418,7 @@ int expression(parser_t*p){
         }
         // just assignment?
         var_t inf;
-        expr(p, &inf,OPP_Assign);        
+        expr(p, &inf,OPP_Assign,1);        
         // print the variable
         //
         // if(inf.type!=TP_CUSTOM && inf.isglo){
@@ -465,7 +465,7 @@ int expression(parser_t*p){
     }
     else {
         var_t inf;
-        return expr(p,&inf ,OPP_Assign);
+        return expr(p,&inf ,OPP_Assign,1);
     }
     return 0;
     
@@ -543,7 +543,7 @@ void stmt(parser_t *p,bool expect_end){
             lexer_expect(p->l, ',');
             lexer_next(p->l);
             var_t left={0,0,0,0,0};
-            expr(p,&left , OPP_Inc);
+            expr(p,&left , OPP_Inc,1);
             printf("after 1");
             if(left.reg_used != REG_AX){
                 emit_push_reg(p->m, REG_AX);
@@ -589,7 +589,7 @@ void stmt(parser_t *p,bool expect_end){
         }
         var_t inf;
         lexer_next(p->l);
-        expr(p,&inf,OPP_Assign);
+        expr(p,&inf,OPP_Assign,1);
         if(inf.ptr_depth == 0 && inf.type == TP_CUSTOM){
             trigger_parser_err(p, "Return a struct is not allowed!");
         }
@@ -602,7 +602,8 @@ void stmt(parser_t *p,bool expect_end){
         lexer_expect(p->l, '(');
         lexer_next(p->l);
         var_t inf;
-        expr(p,&inf,OPP_Assign);
+        // TODO: more opt
+        expr(p,&inf,OPP_Assign,1);
         lexer_expect(p->l, ')');
         lexer_expect(p->l, '{');
         char need_pop = prep_rax(p, inf);
@@ -672,7 +673,7 @@ void stmt(parser_t *p,bool expect_end){
         lexer_next(p->l);
         u64 top_adt = (u64)jit_top(p->m);
         var_t inf;
-        expr(p, &inf,OPP_Assign);
+        expr(p, &inf,OPP_Assign,1);
         lexer_expect(p->l, ')');
         lexer_expect(p->l, '{');
         if(inf.type == TP_CUSTOM && inf.ptr_depth == 0)
@@ -710,7 +711,7 @@ void stmt(parser_t *p,bool expect_end){
         var_t inf;
         u64 base = (u64)jit_top(p->m);
 
-        expr(p, &inf,OPP_Assign);
+        expr(p, &inf,OPP_Assign,1);
         if(inf.type == TP_CUSTOM && inf.ptr_depth == 0)
             trigger_parser_err(p, "Cannot compare!");
         char need_pop = prep_rax(p, inf);

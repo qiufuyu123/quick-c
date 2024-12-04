@@ -58,6 +58,7 @@ typedef struct{
     int ptr_depth; // pointer 
     bool isglo;
     bool is_arr;
+    bool is_const;
     char reg_used;
 }var_t;
 

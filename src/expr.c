@@ -10,6 +10,16 @@ extern u64 debuglibs[2];
 
 #define VALID_REG(i) (((i<6)||(i>9))&&(i!=REG_DX)&&(i!=REG_CX)&&(i != REG_SP)&&(i != REG_BP)&&(i != REG_R13)&&(i != REG_R12))
 
+void load_const(parser_t *p, var_t *left){
+    if(left->is_const == 0){
+        return;
+    }
+    char r = acquire_reg(p);
+    emit_load(p->m, r, left->base_addr);
+    left->reg_used = r;
+    left->is_const = 0;
+}
+
 void save_raxrbx(parser_t *p,var_t* left, var_t *right){
     if(left->reg_used != REG_AX && p->reg_table.reg_used[REG_AX]){
         emit_push_reg(p->m,REG_AX);
@@ -73,31 +83,6 @@ void* var_exist_glo(parser_t *p){
     return ret;
 }
 
-void load_b2a(parser_t*p, char type){
-    if(type < TP_I64){
-        emit(p->m, 0x48);emit(p->m, 0x31);emit(p->m, 0xc0); // xor rax,rax
-    }
-    switch (type) {
-            case TP_I8: case TP_U8:
-                emit(p->m, 0x8a);emit(p->m, 0x03);
-                break;
-            case TP_I16: case TP_U16:
-                emit(p->m, 0x66);emit(p->m, 0x8b);emit(p->m, 0x03);
-                break;
-            case TP_I32: case TP_U32:
-                emit(p->m, 0x8b);emit(p->m, 0x03);
-                break;
-            case TP_I64: case TP_U64:
-                emit(p->m, 0x48); emit(p->m, 0x8b);emit(p->m, 0x03);
-                break;
-            case TP_CUSTOM:
-                break;
-    }
-
-}
-
-
-
 void prepare_calling(parser_t*p, char call_r){
     var_t inf;
     int no = 1,old_no = p->caller_regs_used;
@@ -105,12 +90,8 @@ void prepare_calling(parser_t*p, char call_r){
         backup_caller_reg(p->m, i);
     }
     while (!lexer_skip(p->l, ')')) {
-        // if(no == 1){
-        //     emit_pushrax(p->m);
-        //     emit(p->m, 0x53); // push rbx
-        // }
         lexer_next(p->l);
-        expr(p, &inf,OPP_Assign);
+        expr(p, &inf,OPP_Assign,0);
         if(inf.type == TP_CUSTOM && inf.ptr_depth == 0){
             trigger_parser_err(p, "Cannot pass a structure as argument!");
         }
@@ -119,29 +100,26 @@ void prepare_calling(parser_t*p, char call_r){
         if(no > p->caller_regs_used){
             p->caller_regs_used = no;
         }
-        emit_mov_r2r(p->m, no == 1?REG_DI:
+        char target = no == 1?REG_DI:
                                 no ==2?REG_SI:
                                 no ==3?REG_DX:
                                 no ==4?REG_CX:
                                 no ==5?REG_R8:
-                                REG_R9
-                                , inf.reg_used);
-        release_reg(p, inf.reg_used);
+                                REG_R9;
+        if(inf.is_const)
+            emit_load(p->m, target, inf.base_addr);
+        else {
+            emit_mov_r2r(p->m,target, inf.reg_used);
+            release_reg(p, inf.reg_used);
+        }
         no++;
         if(lexer_skip(p->l, ')')){
             break;
         }
         lexer_expect(p->l, ',');
     }
-
-    
-
     lexer_next(p->l);
-    // if(no > 1){
-    //     emit(p->m, 0x5b); // pop rbx
-    //     emit_poprax(p->m);
-    // }
-    // emit(p->m, 0xff);emit(p->m,0xd0);
+
     p->reg_table.reg_used[call_r]=0;
     save_usedreg(p);
     u64 offset = emit_offset_stack(p->m);
@@ -211,7 +189,7 @@ void assignment(parser_t *p,var_t *v){
         trigger_parser_err(p, "Cannot assign to a constant");
     }
     var_t left;
-    expr(p, &left,OPP_Assign);
+    expr(p, &left,OPP_Assign,1);
     if(left.type != TP_CUSTOM || left.ptr_depth){
         // basic types --> already loaded into rax
         assign_var(p, v,left.reg_used);
@@ -223,29 +201,39 @@ void assignment(parser_t *p,var_t *v){
 
 void array_visit(parser_t*p,var_t *inf,bool leftval){
 
-    emit_push_reg(p->m, REG_DI);
-    emit_push_reg(p->m, REG_AX);
-    emit_push_reg(p->m, REG_BX);
+    
+    u64 offset = inf->ptr_depth?8:inf->type==TP_CUSTOM?inf->prot->len:var_get_base_len(inf->type);
     var_t left;
     lexer_next(p->l);
-    expr(p, &left,OPP_Assign);
-    emit_mov_r2r(p->m, REG_AX, left.reg_used);
-    //release_reg(p,left.reg_used);
+    expr(p, &left,OPP_Assign,0);
     lexer_expect(p->l, ']');
-    emit_load(p->m, REG_BX, inf->ptr_depth?8:inf->type==TP_CUSTOM?inf->prot->len:var_get_base_len(inf->type));
-    emit_push_reg(p->m, REG_DX);
-    emit_mulrbx(p->m);
-    emit_pop_reg(p->m, REG_DX);
-    emit_mov_r2r(p->m, REG_DI, REG_AX);
-    //emit_mov_r2r(p->m, REG_BX, REG_AX);
-    emit_pop_reg(p->m, REG_BX);
-    emit_pop_reg(p->m, REG_AX);
-    emit_addr2r(p->m, inf->reg_used, REG_DI);
-    emit_pop_reg(p->m, REG_DI);
-    
-    release_reg(p, left.reg_used);
-    //inf->ptr_depth--;
-
+    if(left.is_const){
+        if(left.base_addr != 0){
+            left.reg_used = acquire_reg(p);
+            emit_load(p->m, left.reg_used, left.base_addr * offset);
+            emit_addr2r(p->m, inf->reg_used, left.reg_used);
+            release_reg(p, left.reg_used);
+        }
+    }else{
+        emit_push_reg(p->m, REG_DI);
+        emit_push_reg(p->m, REG_AX);
+        emit_push_reg(p->m, REG_BX);
+        emit_mov_r2r(p->m, REG_AX, left.reg_used);
+        //release_reg(p,left.reg_used);
+        emit_load(p->m, REG_BX,offset );
+        emit_push_reg(p->m, REG_DX);
+        emit_mulrbx(p->m);
+        emit_pop_reg(p->m, REG_DX);
+        emit_mov_r2r(p->m, REG_DI, REG_AX);
+        //emit_mov_r2r(p->m, REG_BX, REG_AX);
+        emit_pop_reg(p->m, REG_BX);
+        emit_pop_reg(p->m, REG_AX);
+        emit_addr2r(p->m, inf->reg_used, REG_DI);
+        emit_pop_reg(p->m, REG_DI);
+        
+        release_reg(p, left.reg_used);
+        //inf->ptr_depth--;
+    }
 }
 
 
@@ -341,20 +329,12 @@ bool is_numeric(parser_t *p,var_t left,var_t right){
 
 char load_var(parser_t *p,var_t *left){
     char newr = acquire_reg(p);
-    // emit_mov_addr2r(p->m, left.reg_used, left.reg_used, char wide_type)
     if(left->type >= TP_I64 && left->type <= TP_U64){
-        // emit_mov_addr2r(p->m, REG_AX, REG_BX);
-        // emit_mov_addr2r(p->m, char dst, char src, char wide_type)
-        // optimize
         emit_mov_addr2r(p->m, newr, left->reg_used, TP_U64);
     }else {
-        //emit_mov_r2r(p->m, REG_BX, REG_AX);
-        // load_b2a(p, left.ptr_depth?TP_U64:left.type);
         emit_binary(p->m, newr, newr, BOP_XOR,TP_U64);
         emit_mov_addr2r(p->m, newr, left->reg_used, left->ptr_depth?TP_U64:left->type);
     }
-    // release_reg(p, left->reg_used);
-    // left->reg_used = newr;
     return newr;
 }
 
@@ -375,17 +355,21 @@ bool is_signed(char left, char right){
     return (left == TP_I8 || left == TP_I16 || left == TP_I32 || left == TP_I64);
 }
 
-bool expr(parser_t *p, var_t *inf,int ctx_priority){
+extern flgs_t glo_flag;
+bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
+    if(glo_flag.opt_pass == 0){
+        no_const = 1;
+    }
     token_t token = p->l->tk_now;
     Tk type = token.type;
-    var_t left = {0,0,0,0,0};
+    var_t left = {0,0,0,0,0,0,0,0};
     bool need_load = 0;
     bool is_left_val = 0;
     bool is_left_only = (ctx_priority == OPP_LeftOnly);
     if(type == TK_INT){
-        char r = acquire_reg(p);
-        emit_load(p->m, r, token.integer);
-        left.reg_used = r;
+        left.is_const = 1;
+        left.base_addr = token.integer;
+        
     }else if(type == '"'){
         int i = p->l->cursor;
         int len = 0;
@@ -409,33 +393,34 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
         left.type = TP_U8;
     }else if(type == '+' ){
         lexer_next(p->l);
-        expr(p, &left, OPP_Inc);
+        expr(p, &left, OPP_Inc,0);
     }
     else if(type == '~'){
         lexer_next(p->l);
-        expr(p, &left, OPP_Inc);
+        expr(p, &left, OPP_Inc,0);
         // emit(p->m, 0x48);
         // emit(p->m, 0xf7);
         // emit(p->m, 0xd0); // not rax;
-        emit_unary(p->m, left.reg_used, UOP_NOT);
-        inf->reg_used = left.reg_used;
+        if(!left.is_const){
+            emit_unary(p->m, left.reg_used, UOP_NOT);
+        }else {
+            left.base_addr = ~left.base_addr;
+        }
         
     }else if(type == '-'){
         lexer_next(p->l);
-        expr(p, &left, OPP_Inc);
+        expr(p, &left, OPP_Inc,0);
         if(left.type < TP_INTEGER){
-            // rax --> Im
-            // emit_load(p->m, REG_BX, 0);  // mov rbx,0
-            // emit_minusr2r(p->m, REG_BX, REG_AX); //sub rbx,rax
-            // emit_mov_r2r(p->m, REG_AX, REG_BX); //mov rax,rbx
-            emit_unary(p->m, left.reg_used, UOP_NEG);
-            inf->reg_used = left.reg_used;
+            if(!left.is_const)
+                emit_unary(p->m, left.reg_used, UOP_NEG);
+            else
+                left.base_addr = -left.base_addr;
         }else {
             trigger_parser_err(p, "Cannot neg!");
         }
     }else if(type == '&'){
         lexer_next(p->l);
-        if(expr(p, &left, OPP_LeftOnly) == 0){
+        if(expr(p, &left, OPP_LeftOnly,1) == 0){
             trigger_parser_err(p, "& operator must follow a left value!");
         }
         
@@ -444,7 +429,7 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
 
     }else if(type == '*'){
         lexer_next(p->l);
-        if(expr(p, &left, OPP_Inc)==0){
+        if(expr(p, &left, OPP_Inc,1)==0){
             // emit_mov_r2r(p->m, REG_BX, REG_AX);
         }
         if(left.ptr_depth == 0){
@@ -466,7 +451,6 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
                 if(left.ptr_depth){
                     emit_mov_addr2r(p->m, left.reg_used, left.reg_used,TP_U64);
                     left.ptr_depth--;
-                    printf("dec ptr to :%d\n",left.ptr_depth);
                 }else{
                     trigger_parser_err(p, "array visit must be a pointer or array");
                 }
@@ -474,7 +458,6 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
             left.is_arr = 0;
             lexer_next(p->l);
             array_visit(p, &left, 0);
-            //left.ptr_depth--;
             need_load = 1;
         }else {
             if(left.is_arr==0)
@@ -496,9 +479,8 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
         lexer_next(p->l);
         int offset= struct_offset(p, type, p->l->tk_now, 0);
         lexer_expect(p->l, ')');
-        char r = acquire_reg(p);
-        emit_load(p->m, r, offset);
-        left.reg_used = r;
+        left.is_const = 1;
+        left.base_addr = offset;
     }
     else if(type == TK_SIZEOF){
         //lexer_next(p->l);
@@ -518,27 +500,13 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
                 size = 8;
             }else {
                 if(builtin != TP_CUSTOM){
-                    switch (builtin) {
-                        case TP_U64: case TP_I64:
-                            size = 8;
-                            break;
-                        case TP_U32: case TP_I32:
-                            size = 4;
-                            break;
-                        case TP_U16: case TP_I16:
-                            size = 2;
-                            break;
-                        default:
-                            size = 1;
-                            break;
-                    }
+                    size = var_get_base_len(builtin);
                 }else {
                     size = prot->len;
                 }
             }
-            char r = acquire_reg(p);
-            emit_load(p->m, r, size);
-            left.reg_used = r;
+            left.is_const = 1;
+            left.base_addr = size;
         }else {
             trigger_parser_err(p, "Expect a type!");
         }
@@ -551,15 +519,14 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
             char builtin = TP_UNK;
             proto_t *prot = NULL;
             def_stmt(p, &ptr_dep, &builtin, &prot, 0, 0);
-            //lexer_expect(p->l, ')');
             lexer_next(p->l);
-            expr(p, &left, OPP_Inc);
+            expr(p, &left, OPP_Inc,0);
             left.ptr_depth = ptr_dep;
             left.prot = prot;
             left.type = builtin;
         }
         else{
-            is_left_val = expr(p, &left, OPP_Assign);
+            is_left_val = expr(p, &left, OPP_Assign,0);
             lexer_expect(p->l, ')');
         }
     }
@@ -572,7 +539,6 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
         lexer_next(p->l);
         if(type == '='){
             if(need_load) need_load =0;
-            // else emit_mov_r2r(p->m, REG_BX, REG_AX); // case for *a = b;
             lexer_next(p->l);
             assignment(p,&left);
 
@@ -604,7 +570,7 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
             char newr = load_var(p, &left);
             emit_push_reg(p->m,newr);
             lexer_next(p->l);
-            expr(p, &right, OPP_Assign);
+            expr(p, &right, OPP_Assign,1);
             if(type == TK_ADD_ASSIGN){
                 emit_addr2r(p->m, newr, right.reg_used);
             }else {
@@ -623,10 +589,9 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
             need_load = 0;
         }
         else if(type == '['){
-            //lexer_next(p->l);
-            // if(left.ptr_depth && need_load){
-            //     emit_mov_addr2r(p->m,left.reg_used,left.reg_used,TP_U64);
-            // }
+            if(left.is_const){
+                trigger_parser_err(p, "Cannot visit a constant value");
+            }
             
             if(left.is_arr == 0){
                 if(left.ptr_depth){
@@ -664,7 +629,8 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
             left.type = pro_sub.builtin;
             left.ptr_depth = pro_sub.ptr_depth;
             left.is_arr = pro_sub.is_arr;
-            emit_add_regimm(p->m, left.reg_used, r);
+            if(r)
+                emit_add_regimm(p->m, left.reg_used, r);
             if(!left.is_arr)
                 need_load = 1;
         }
@@ -680,146 +646,171 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
             if(type == '+' || type == '-'){
                 // emit_pushrax(p->m);
                 lexer_next(p->l);
-                expr(p, &right, OPP_Mul);
+                expr(p, &right, OPP_Mul,0);
                 if(!is_numeric(p, left, right)){
                     trigger_parser_err(p, "Cannot add!");
                 }
-                
-                if(type == '+'){
-                    // emit_poprbx(p->m);
-                    emit_addr2r(p->m, left.reg_used, right.reg_used);
+                if(left.is_const && right.is_const){
+                    if(type == '+') left.base_addr += right.base_addr;
+                    else            left.base_addr -= right.base_addr;
+                }else{
+                    load_const(p, &left);
+                    load_const(p, &right);
+                    if(type == '+'){
+                        // emit_poprbx(p->m);
+                        emit_addr2r(p->m, left.reg_used, right.reg_used);
+                    }
+                    else{
+                        emit_minusr2r(p->m, left.reg_used, right.reg_used);
+                    }
+                    release_reg(p, right.reg_used);
                 }
-                else{
-                    emit_minusr2r(p->m, left.reg_used, right.reg_used);
-                }
-                release_reg(p, right.reg_used);
             }else if(type == '*' || type == '/' || type == '%'){
                 lexer_next(p->l);
                 //emit_pushrax(p->m);
-                expr(p, &right, OPP_Inc);
+                expr(p, &right, OPP_Inc,0);
                 if(!is_numeric(p, left, right)){
                     trigger_parser_err(p, "Cannot add!");
                 }
-                printf("left:%d,right:%d\n",left.reg_used,right.reg_used);
-                save_raxrbx(p, &left, &right);
-                if(right.reg_used!= REG_BX){
-                    emit_push_reg(p->m, right.reg_used);
-                }
-                if(left.reg_used != REG_AX){
-                    emit_push_reg(p->m, left.reg_used);
-                    emit_pop_reg(p->m, REG_AX);
-                }
-                if(right.reg_used != REG_BX)
-                    emit_pop_reg(p->m, REG_BX);
-                if(p->reg_table.reg_used[REG_DX]){
-                    emit_push_reg(p->m, REG_DX);
-                }
-                if(type == '*'){
-                    emit_mulrbx(p->m);
-                    emit_mov_r2r(p->m, REG_R13, REG_AX);
-
-                }else if(type == '/'){
-                    emit_divrbx(p->m);
-                    emit_mov_r2r(p->m, REG_R13, REG_AX);
+                if(left.is_const && right.is_const){
+                    if(type == '*') left.base_addr *= right.base_addr;
+                    else if(type == '/') left.base_addr /= right.base_addr;
+                    else                 left.base_addr %= right.base_addr;
                 }else{
-                    emit_divrbx(p->m);
-                    emit_mov_r2r(p->m, REG_R13, REG_DX);
-                }
-                if(p->reg_table.reg_used[REG_DX]){
-                    emit_pop_reg(p->m, REG_DX);
-                }
+                    load_const(p, &left);
+                    load_const(p, &right);
+                    save_raxrbx(p, &left, &right);
+                    if(right.reg_used!= REG_BX){
+                        emit_push_reg(p->m, right.reg_used);
+                    }
+                    if(left.reg_used != REG_AX){
+                        emit_push_reg(p->m, left.reg_used);
+                        emit_pop_reg(p->m, REG_AX);
+                    }
+                    if(right.reg_used != REG_BX)
+                        emit_pop_reg(p->m, REG_BX);
+                    if(p->reg_table.reg_used[REG_DX]){
+                        emit_push_reg(p->m, REG_DX);
+                    }
+                    if(type == '*'){
+                        emit_mulrbx(p->m);
+                        emit_mov_r2r(p->m, REG_R13, REG_AX);
 
-                release_raxrbx(p, &left, &right);
-                release_reg(p, right.reg_used);
-                emit_mov_r2r(p->m, left.reg_used, REG_R13);
+                    }else if(type == '/'){
+                        emit_divrbx(p->m);
+                        emit_mov_r2r(p->m, REG_R13, REG_AX);
+                    }else{
+                        emit_divrbx(p->m);
+                        emit_mov_r2r(p->m, REG_R13, REG_DX);
+                    }
+                    if(p->reg_table.reg_used[REG_DX]){
+                        emit_pop_reg(p->m, REG_DX);
+                    }
+
+                    release_raxrbx(p, &left, &right);
+                    release_reg(p, right.reg_used);
+                    emit_mov_r2r(p->m, left.reg_used, REG_R13);
+                }
             }else if(type == '>' || type == '<' || type == TK_NEQ || type == TK_EQ || type == TK_LE || type == TK_GE){
                 bool lt = type =='<',gt = type == '>',ne = type == TK_NEQ,eql = type == TK_EQ,fle = type == TK_LE;
                 lexer_next(p->l);
                 if(eql || ne){
-                    expr(p, &right, OPP_Lt);
+                    expr(p, &right, OPP_Lt,0);
                 }else {
-                    expr(p,&right,OPP_Shl);
+                    expr(p,&right,OPP_Shl,0);
                 }
                 if(!is_numeric(p, left, right)){
                     trigger_parser_err(p, "Cannot compare!");
                 }
-                // save_raxrbx(p, &left, &right);
-                // if(left.reg_used != REG_AX)
-                //     emit_mov_r2r(p->m, REG_AX, left.reg_used);
-                // if(right.reg_used != REG_BX)
-                //     emit_mov_r2r(p->m, REG_BX, right.reg_used);
-                // emit(p->m, 0x48);emit(p->m, 0x39);emit(p->m, 0xd8); // cmp %rax,%rbx
-                char need_pop = 0;
-                if(left.reg_used != REG_AX && p->reg_table.reg_used[REG_AX]){
-                    emit_push_reg(p->m, REG_AX);
-                    need_pop = 1;
-                }
-                char isSigned = is_signed(left.type, right.type);
-                emit_binary(p->m, left.reg_used, right.reg_used, BOP_CMP,left.type);
-                emit(p->m,0x0f);
-                emit(p->m, lt ? (isSigned? 0x9c:0x92) /* < */ :
-                        gt ? (isSigned? 0x9f:0x97) /* > */ :
-                                ne ? 0x95 /* != */ :
-                                    eql ? 0x94 /* == */ :
-                                        fle ? (isSigned?0x9e:0x96) /* <= */ :
-                                                isSigned? 0x9d:0x93 /* >= */);
-                
+                if(left.is_const && right.is_const){
+                    if     (lt) left.base_addr = (left.base_addr > right.base_addr);
+                    else if(gt) left.base_addr = (left.base_addr < right.base_addr);
+                    else if(ne) left.base_addr = (left.base_addr != right.base_addr);
+                    else if(eql) left.base_addr = (left.base_addr == right.base_addr);
+                    else if(fle) left.base_addr = (left.base_addr <= right.base_addr);
+                    else if(type == TK_GE) left.base_addr = (left.base_addr >= right.base_addr);
+
+                }else{
+                    load_const(p, &left);
+                    load_const(p, &right);
+                    char need_pop = 0;
+                    if(left.reg_used != REG_AX && p->reg_table.reg_used[REG_AX]){
+                        emit_push_reg(p->m, REG_AX);
+                        need_pop = 1;
+                    }
+                    char isSigned = is_signed(left.type, right.type);
+                    emit_binary(p->m, left.reg_used, right.reg_used, BOP_CMP,left.type);
+                    emit(p->m,0x0f);
+                    emit(p->m, lt ? (isSigned? 0x9c:0x92) /* < */ :
+                            gt ? (isSigned? 0x9f:0x97) /* > */ :
+                                    ne ? 0x95 /* != */ :
+                                        eql ? 0x94 /* == */ :
+                                            fle ? (isSigned?0x9e:0x96) /* <= */ :
+                                                    isSigned? 0x9d:0x93 /* >= */);
                     
-                emit(p->m, 0xc0); // setX al
-                emit(p->m, 0x48);emit(p->m, 0x0f);emit(p->m, 0xb6);emit(p->m, 0xc0); // mov %al,%rax
-                emit_mov_r2r(p->m, left.reg_used, REG_AX);
-                release_reg(p, right.reg_used);
-                if(need_pop)
-                    emit_pop_reg(p->m, REG_AX);
-                // release_raxrbx(p, &left, &right);
+                        
+                    emit(p->m, 0xc0); // setX al
+                    emit(p->m, 0x48);emit(p->m, 0x0f);emit(p->m, 0xb6);emit(p->m, 0xc0); // mov %al,%rax
+                    emit_mov_r2r(p->m, left.reg_used, REG_AX);
+                    release_reg(p, right.reg_used);
+                    if(need_pop)
+                        emit_pop_reg(p->m, REG_AX);
+                }
             }else if(type == '|' || type == '&' || type == '^' || type == TK_AND || type == TK_OR){
                 bool or = (type == '|')||(type == TK_OR);
                 bool and = (type == '&')||(type == TK_AND);
                 bool xor = type == '^';
                 // emit_pushrax(p->m);
                 lexer_next(p->l);
-                expr(p, &right, OPP_Assign);
+                expr(p, &right, OPP_Assign,0);
                 if(!is_numeric(p, left, right)){
                     trigger_parser_err(p, "Requre 2 numeric variable!");
                 }
-                // emit_mov_r2r(p->m, REG_BX, REG_AX);
-                // emit_poprax(p->m);
-                // emit(p->m, 0x48);
-                // emit(p->m, and?0x21:or?0x09:0x31);
-                // emit(p->m, 0xd8);
-                emit_binary(p->m, left.reg_used, right.reg_used, and?BOP_AND:or?BOP_OR:BOP_XOR,TP_U64);
-                release_reg(p, right.reg_used);
+                if(left.is_const && right.is_const){
+                    if(or)       left.base_addr |= right.base_addr;
+                    else if(and) left.base_addr &= right.base_addr;
+                    else if(xor) left.base_addr ^= right.base_addr;
+                }else{
+                    load_const(p, &left);
+                    load_const(p, &right);
+                    emit_binary(p->m, left.reg_used, right.reg_used, and?BOP_AND:or?BOP_OR:BOP_XOR,TP_U64);
+                    release_reg(p, right.reg_used);
+                }
 
             }else if(type == TK_LSHL || type == TK_LSHR){
                 bool lsl = type == TK_LSHL;
                 // emit_pushrax(p->m);
                 lexer_next(p->l);
-                expr(p,&right,OPP_Add);
-                emit_push_reg(p->m, REG_CX);
+                expr(p,&right,OPP_Add,0);
+                if(left.is_const && right.is_const){
+                    if(type == TK_LSHL) left.base_addr <<= right.base_addr;
+                    else                left.base_addr >>= right.base_addr;
+                }else{
+                    load_const(p, &left);
+                    load_const(p, &right);
+                    emit_push_reg(p->m, REG_CX);
 
-                if(left.reg_used != REG_AX){
-                    emit_push_reg(p->m,REG_AX);
-                    emit_push_reg(p->m, left.reg_used);
+                    if(left.reg_used != REG_AX){
+                        emit_push_reg(p->m,REG_AX);
+                        emit_push_reg(p->m, left.reg_used);
+                    }
+                    emit_push_reg(p->m, right.reg_used);
+                    emit_pop_reg(p->m, REG_CX);
+                    if(left.reg_used != REG_AX)
+                        emit_pop_reg(p->m, REG_AX);
+                    emit(p->m, 0x48);emit(p->m, 0xd3);
+                    if(lsl){
+                        emit(p->m, 0xe0);
+                    }else {
+                        emit(p->m, 0xe8);
+                    }
+                    emit_mov_r2r(p->m, REG_R13, REG_AX);
+                    if(left.reg_used != REG_AX)
+                        emit_pop_reg(p->m, REG_AX);
+                    emit_pop_reg(p->m, REG_CX);
+                    release_reg(p, right.reg_used);
+                    emit_mov_r2r(p->m, left.reg_used, REG_R13);
                 }
-                emit_push_reg(p->m, right.reg_used);
-                emit_pop_reg(p->m, REG_CX);
-                if(left.reg_used != REG_AX)
-                    emit_pop_reg(p->m, REG_AX);
-                // emit(p->m, 0x48);emit(p->m, 0x31);emit(p->m, 0xc9); // xor rcx,rcx
-                // emit_mov_r2r(p->m, REG_CX, REG_AX);
-                // emit_poprax(p->m);
-                emit(p->m, 0x48);emit(p->m, 0xd3);
-                if(lsl){
-                    emit(p->m, 0xe0);
-                }else {
-                    emit(p->m, 0xe8);
-                }
-                emit_mov_r2r(p->m, REG_R13, REG_AX);
-                if(left.reg_used != REG_AX)
-                    emit_pop_reg(p->m, REG_AX);
-                emit_pop_reg(p->m, REG_CX);
-                release_reg(p, right.reg_used);
-                emit_mov_r2r(p->m, left.reg_used, REG_R13);
             }
         }
         token = lexer_peek(p->l);
@@ -833,6 +824,9 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority){
     }
     if(is_left_only && !is_left_val){
         trigger_parser_err(p, "A left-val is required!");
+    }
+    if(no_const && left.is_const){
+        load_const(p, &left);
     }
     *inf = left;
     return is_left_val;

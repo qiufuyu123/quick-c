@@ -19,7 +19,7 @@ i32 main()
 {
     t2_t t;
     t2_t *ptr = &t;
-    arr[0]=1;
+    arr[0] = 1 ;
     test(arr,&arr,123,arr[0]);
     printf("original:0x%llx %llx 0x%llx data %d\n",arr,&arr,&arr[0],arr[0]);
     printf("%x  ==  %x\n",&t.v1[1]-t.v1,1);

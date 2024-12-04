@@ -43,6 +43,7 @@ typedef struct{
     bool glo_sym_table;
     bool need_qlib;
     bool norun;
+    char opt_pass;
 }flgs_t;
 
 #define VAR_EXIST_LOC (hashmap_get(&p->m->local_sym_table,&p->l->code[p->l->tk_now.start], p->l->tk_now.length))
@@ -53,7 +54,7 @@ void release_reg(parser_t *p,char r);
 
 int def_stmt(parser_t *p,int *ptr_depth,char *builtin,proto_t** proto,token_t *name,bool need_var_name);
 int var_get_base_len(char type);
-bool expr(parser_t *p, var_t *inf,int ctx_priority);
+bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const);
 void prep_assign(parser_t *p,var_t *v);
 void assignment(parser_t *p,var_t *v);
 void output_surrounding(parser_t *p);

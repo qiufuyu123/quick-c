@@ -1,6 +1,7 @@
 #include "../../libqc/def.qh"
 #include "../../libqc/io.qh"
 #define _IO_H
+
 i32 assert_eq(i32 a, i32 b)
 {
     printf("a:%d,b:%d\n",a,b);
@@ -13,12 +14,11 @@ i32 assert_eq(i32 a, i32 b)
     }
     return 0;
 }
-
+// iiiii
 u32 main()
 {
     /* Value test */
     i32 a,b,c,d=5,e=10;
-
     assert_eq(d, 5);
     assert_eq(e, 10);
 
@@ -81,6 +81,8 @@ u32 main()
     u8 *ptr = &base;
 
     assert_eq((i32)(&ptr[3]),&ptr[5]-2);
-    printf("currentline:%d %d\n",_LINE_,_IO_H);
+    // printf("currentline:%d %d\n",_LINE_,_IO_H);
     return 0;
 }
+
+//

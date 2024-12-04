@@ -18,7 +18,8 @@ flgs_t glo_flag = {.src_start = 0,
                    .need_obj = 0,
                    .need_qlib = 1,
                    .norun = 0,
-                   .jit_pg_no = 8};
+                   .jit_pg_no = 8,
+                   .opt_pass = 1};
 
 void check(int argc, char **argv) {
   for (int i = 1; i < argc; i++) {
@@ -42,6 +43,8 @@ void check(int argc, char **argv) {
         glo_flag.need_obj = 1;
         i++;
         glo_flag.dst = argv[i];
+      }else if(s == 'O'){
+        glo_flag.opt_pass = argv[i][2] - '0';
       } else if (s == 'i' || s == 'I') {
         i++;
         glo_flag.glo_include = argv[i];

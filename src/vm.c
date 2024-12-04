@@ -128,6 +128,7 @@ var_t* var_new_base(char type,u64 v,int ptr,bool isglo,proto_t* prot,bool isarr)
     r->ptr_depth = ptr;
     r->prot = prot;
     r->isglo = isglo;
+    r->is_const = 0;
     r->is_arr = isarr;
     return r;
 
