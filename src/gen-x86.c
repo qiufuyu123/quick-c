@@ -123,17 +123,17 @@ void emit_minusr2r(module_t*v,char dst,char src){
     emit_rm(v, dst, src, 0b11000000, 0x29,TP_U64);
 }
 
-void emit_mulrbx(module_t*v){
-    emit(v, 0x48);
+void emit_mulr(module_t*v,char r){
+    emit(v, r>=REG_R8?0x49: 0x48);
     emit(v, 0xf7);
-    emit(v, 0xe3);
+    emit(v, r>=REG_R8?r-REG_R8+ 0xe0:r+0xe0);
 }
 
-void emit_divrbx(module_t*v){
+void emit_divr(module_t*v,char r){
     emit_load(v, REG_DX, 0);
-    emit(v, 0x48);
+    emit(v, r>=REG_R8?0x49:0x48);
     emit(v, 0xf7);
-    emit(v, 0xf3);
+    emit(v, r>=REG_R8?r-REG_R8+0xf0:r+0xf0);
 }
 
 

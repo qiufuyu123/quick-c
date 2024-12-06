@@ -249,7 +249,7 @@ void lexer_match(Lexer_t *lex, Tk left, Tk right){
     }
 }
 
-int binary_op[16][3] ={
+int binary_op[18][3] ={
     {'+','+',TK_ADD2},
     {'+','=',TK_ADD_ASSIGN},
     {'-','-',TK_MINUS2},
@@ -257,6 +257,8 @@ int binary_op[16][3] ={
     {'*','=',TK_MUL_ASSIGN},
     {'/','=',TK_DIV_ASSIGN},
     {'%','=',TK_MOD_ASSIGN},
+    {'|','=',TK_OR_ASSIGN},
+    {'&','=',TK_AND_ASSIGN},
     {'<','=',TK_LE},
     {'>','=',TK_GE},
     {'=','=',TK_EQ},
@@ -330,7 +332,7 @@ token_t lexer_next(Lexer_t *lex){
     }
     // symbols
 
-    for (int i =0; i<16; i++) {
+    for (int i =0; i<18; i++) {
         if(c == binary_op[i][0] && lex->code[lex->cursor+1] == binary_op[i][1]){
             lex->tk_now.length=2;
             lex->tk_now.type = binary_op[i][2];

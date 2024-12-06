@@ -172,9 +172,9 @@ void emit_addr2r(module_t*v,char dst,char src);
 
 void emit_minusr2r(module_t*v,char dst,char src);
 
-void emit_mulrbx(module_t*v);
+void emit_mulr(module_t*v,char r);
 
-void emit_divrbx(module_t*v);
+void emit_divr(module_t*v,char r);
 
 u64 emit_offset_stack(module_t *v);
 

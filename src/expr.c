@@ -218,21 +218,28 @@ void array_visit(parser_t*p,var_t *inf,bool leftval){
     }else{
         emit_push_reg(p->m, REG_DI);
         emit_push_reg(p->m, REG_AX);
-        emit_push_reg(p->m, REG_BX);
         emit_mov_r2r(p->m, REG_AX, left.reg_used);
         //release_reg(p,left.reg_used);
-        emit_load(p->m, REG_BX,offset );
+        char need_cls = 0;
+        if(p->reg_table.reg_used[REG_AX] == 0){
+            p->reg_table.reg_used[REG_AX]=1;
+            need_cls=1;
+        }
+        char tmp = acquire_reg(p);
+        emit_load(p->m, tmp,offset );
         emit_push_reg(p->m, REG_DX);
-        emit_mulrbx(p->m);
+        emit_mulr(p->m,tmp);
+        release_reg(p, tmp);
         emit_pop_reg(p->m, REG_DX);
         emit_mov_r2r(p->m, REG_DI, REG_AX);
         //emit_mov_r2r(p->m, REG_BX, REG_AX);
-        emit_pop_reg(p->m, REG_BX);
         emit_pop_reg(p->m, REG_AX);
         emit_addr2r(p->m, inf->reg_used, REG_DI);
         emit_pop_reg(p->m, REG_DI);
         
         release_reg(p, left.reg_used);
+        if(need_cls)
+            p->reg_table.reg_used[REG_AX]=0;
         //inf->ptr_depth--;
     }
 }
@@ -282,17 +289,50 @@ void expr_ident(parser_t* p, var_t *inf){
     *inf = parent;
 }
 
+void expr_muldiv(parser_t *p, var_t *left, var_t *right,Tk type){
+    save_raxrbx(p, left, right);
+    if(right->reg_used!= REG_BX){
+        emit_push_reg(p->m, right->reg_used);
+    }
+    if(left->reg_used != REG_AX){
+        emit_push_reg(p->m, left->reg_used);
+        emit_pop_reg(p->m, REG_AX);
+    }
+    if(right->reg_used != REG_BX)
+        emit_pop_reg(p->m, REG_BX);
+    if(p->reg_table.reg_used[REG_DX]){
+        emit_push_reg(p->m, REG_DX);
+    }
+    if(type == '*' || type == TK_MUL_ASSIGN){
+        emit_mulr(p->m,REG_BX);
+        emit_mov_r2r(p->m, REG_R13, REG_AX);
+
+    }else if(type == '/' || type == TK_DIV_ASSIGN){
+        emit_divr(p->m,REG_BX);
+        emit_mov_r2r(p->m, REG_R13, REG_AX);
+    }else if(type == '%' || type == TK_MOD_ASSIGN){ 
+        emit_divr(p->m,REG_BX);
+        emit_mov_r2r(p->m, REG_R13, REG_DX);
+    }else {
+        trigger_parser_err(p, "Internal error: At expr_muldiv");
+    }
+    if(p->reg_table.reg_used[REG_DX]){
+        emit_pop_reg(p->m, REG_DX);
+    }
+
+    release_raxrbx(p, left, right);
+    release_reg(p, right->reg_used);
+    emit_mov_r2r(p->m, left->reg_used, REG_R13);
+}
 
 int token2opp(Tk type){
-    static int opp_map[26][2] ={
+    static int opp_map[24][2] ={
         {'+',OPP_Add},
         {'-',OPP_Sub},
         {'*',OPP_Mul},
         {'/',OPP_Div},
         {'%',OPP_Mod},
         {'=',OPP_Assign},
-        {TK_ADD_ASSIGN,OPP_Assign},
-        {TK_SUB_ASSIGN,OPP_Assign},
         {'&',OPP_And},
         {'|',OPP_Or},
         {'^',OPP_Xor},
@@ -312,11 +352,13 @@ int token2opp(Tk type){
         {TK_LSHR,OPP_Shr},
         {'(',OPP_Fcall}
     };
-    for (int i = 0; i<26; i++) {
+    for (int i = 0; i<24; i++) {
         if(opp_map[i][0] == type){
             return opp_map[i][1];
         }
     }
+    if(type >= TK_ADD_ASSIGN && type <= TK_AND_ASSIGN)
+        return OPP_Assign;
     return 0;
 }
 
@@ -563,8 +605,8 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
             emit_pop_reg(p->m, newr);
             need_load = 0;
             is_left_val = 0;
-        }else if(type == TK_ADD_ASSIGN || type == TK_SUB_ASSIGN){
-            printf("+=/-=!\n");
+        }else if(type >= TK_ADD_ASSIGN && type <= TK_AND_ASSIGN){
+            printf("+=/-=! %d\n",type - TK_ADD_ASSIGN);
             // add/minus, but return the original value
             if(!need_load){
                 trigger_parser_err(p, "Inc/Dec must be applied to a left value!");
@@ -573,10 +615,23 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
             emit_push_reg(p->m,newr);
             lexer_next(p->l);
             expr(p, &right, OPP_Assign,1);
+            if(!is_numeric(p,left, right, 1)){
+                trigger_parser_err(p, "Need a numeric type!");
+            }
+
             if(type == TK_ADD_ASSIGN){
                 emit_addr2r(p->m, newr, right.reg_used);
-            }else {
+            }else if(type == TK_SUB_ASSIGN){
                 emit_minusr2r(p->m, newr, right.reg_used);
+            }else if(type == TK_AND_ASSIGN){
+                emit_binary(p->m,newr, right.reg_used,BOP_AND ,left.type);
+            }else if(type == TK_OR_ASSIGN){
+                emit_binary(p->m, newr, right.reg_used, BOP_OR,left.type);
+            }else {
+                char old=left.reg_used;
+                left.reg_used = newr;
+                expr_muldiv(p, &left, &right, type);
+                left.reg_used = old;
             }
             release_reg(p, right.reg_used);
             assign_var(p, &left,newr);
@@ -680,37 +735,7 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
                 }else{
                     load_const(p, &left);
                     load_const(p, &right);
-                    save_raxrbx(p, &left, &right);
-                    if(right.reg_used!= REG_BX){
-                        emit_push_reg(p->m, right.reg_used);
-                    }
-                    if(left.reg_used != REG_AX){
-                        emit_push_reg(p->m, left.reg_used);
-                        emit_pop_reg(p->m, REG_AX);
-                    }
-                    if(right.reg_used != REG_BX)
-                        emit_pop_reg(p->m, REG_BX);
-                    if(p->reg_table.reg_used[REG_DX]){
-                        emit_push_reg(p->m, REG_DX);
-                    }
-                    if(type == '*'){
-                        emit_mulrbx(p->m);
-                        emit_mov_r2r(p->m, REG_R13, REG_AX);
-
-                    }else if(type == '/'){
-                        emit_divrbx(p->m);
-                        emit_mov_r2r(p->m, REG_R13, REG_AX);
-                    }else{
-                        emit_divrbx(p->m);
-                        emit_mov_r2r(p->m, REG_R13, REG_DX);
-                    }
-                    if(p->reg_table.reg_used[REG_DX]){
-                        emit_pop_reg(p->m, REG_DX);
-                    }
-
-                    release_raxrbx(p, &left, &right);
-                    release_reg(p, right.reg_used);
-                    emit_mov_r2r(p->m, left.reg_used, REG_R13);
+                    expr_muldiv(p, &left, &right, type);
                 }
             }else if(type == '>' || type == '<' || type == TK_NEQ || type == TK_EQ || type == TK_LE || type == TK_GE){
                 bool lt = type =='<',gt = type == '>',ne = type == TK_NEQ,eql = type == TK_EQ,fle = type == TK_LE;
