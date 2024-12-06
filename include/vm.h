@@ -176,37 +176,21 @@ void emit_mulrbx(module_t*v);
 
 void emit_divrbx(module_t*v);
 
-void emit_saversp(module_t *v);
-
 u64 emit_offset_stack(module_t *v);
 
 void emit_restore_stack(module_t *v,u64 offset);
 
-void emit_restorersp(module_t *v);
-
 void emit_loadglo(module_t *v, u64 base_addr,char r, bool is_undef);
-
-void emit_param_4(module_t *v,u64 a,u64 b,u64 c,u64 d);
 
 void emit_reg2rbp(module_t*v,char src,i32 offset);
 
-void emit_rbpload(module_t *v,char w,u32 offset);
-
-void emit_storelocaddr(module_t *v,u32 dst,u32 src);
-
-void emit_rsp2bx(module_t*v,u32 offset);
-
 u64* emit_offsetrsp(module_t*v,u32 offset,bool sub);
-
-int emit_call_enter(module_t* v,int p_cnt);
 
 void emit_call(module_t *v,u64 addr);
 
 u64* emit_jmp_flg(module_t*v);
 
 i32* emit_reljmp_flg(module_t *v);
-
-void emit_call_leave(module_t* v,int sz);
 
 u64 emit_label_load(module_t* v,char r);
 
@@ -225,4 +209,6 @@ void restore_caller_reg(module_t *v,int no);
 void emit_unary(module_t *v,char r, char type);
 
 void emit_binary(module_t *v,char dst,char src, char type,char opwide);
+
+void emit_gsbase(module_t *v, char r, char is_read);
 #endif

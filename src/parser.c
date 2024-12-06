@@ -39,7 +39,7 @@ void trigger_parser_err(parser_t* p,const char *s,...){
         memcpy(bufname, &p->l->code[p->l->tk_now.start],p->l->tk_now.length);
     }
     output_surrounding(p);
-    printf("Error: %s('%s')\n",buf,bufname);
+    printf("Error: %s('%s') At %s\n",buf,bufname,p->l->path);
     // exit(1);
     glo_sym_debug(&p->m->sym_table);
     longjmp(err_callback, 1);
@@ -72,13 +72,11 @@ int var_get_base_len(char type){
         case TP_I64: case TP_U64:
             return 8;
     }
+    return -1;
 }
 
 int def_stmt(parser_t *p,int *ptr_depth,char *builtin,proto_t** proto,token_t *name,bool need_var_name){
-
     token_t t = p->l->tk_now;
-    
-    
     if(*builtin == TP_UNK){
         *proto = NULL;
         if(t.type<TK_I8 || t.type>TK_U64){

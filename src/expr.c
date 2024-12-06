@@ -155,6 +155,7 @@ void func_call(parser_t *p,var_t* inf){
         emit_mov_addr2r(p->m, inf->reg_used, inf->reg_used,TP_U64);
         // ax--> jump dst
         prepare_calling(p,inf->reg_used);
+        inf->ptr_depth--;
     }else {
         printf("type:%d, ptr_depth:%d\n",inf->type,inf->ptr_depth);
         trigger_parser_err(p, "Cannot Call!");
@@ -319,10 +320,11 @@ int token2opp(Tk type){
     return 0;
 }
 
-bool is_numeric(parser_t *p,var_t left,var_t right){
-    if(left.ptr_depth || right.ptr_depth){
-        //output_surrounding(p);
-        printf("WARN: Operating between pointers are different from C rules!\n");
+bool is_numeric(parser_t *p,var_t left,var_t right,char is_op){
+    if((is_op)&&(left.ptr_depth || right.ptr_depth)){
+        if(var_get_base_len(left.type) != 1 || var_get_base_len(right.type)!=1){
+            trigger_parser_err(p,"Operation between pointers are not allowed!(try convert it to u64)\n");
+        }
     }
     return (left.ptr_depth || left.type < TP_INTEGER) && (right.ptr_depth || right.type < TP_INTEGER);
 }
@@ -609,7 +611,6 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
         }else if(type == '.'){
             
             if(left.ptr_depth && need_load){
-                printf("struct visit de-ptr!\n");
                 emit_mov_addr2r(p->m,left.reg_used,left.reg_used,TP_U64);
             }
             need_load = 0;
@@ -647,7 +648,7 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
                 // emit_pushrax(p->m);
                 lexer_next(p->l);
                 expr(p, &right, OPP_Mul,0);
-                if(!is_numeric(p, left, right)){
+                if(!is_numeric(p, left, right,1)){
                     trigger_parser_err(p, "Cannot add!");
                 }
                 if(left.is_const && right.is_const){
@@ -669,7 +670,7 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
                 lexer_next(p->l);
                 //emit_pushrax(p->m);
                 expr(p, &right, OPP_Inc,0);
-                if(!is_numeric(p, left, right)){
+                if(!is_numeric(p, left, right,1)){
                     trigger_parser_err(p, "Cannot add!");
                 }
                 if(left.is_const && right.is_const){
@@ -719,7 +720,7 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
                 }else {
                     expr(p,&right,OPP_Shl,0);
                 }
-                if(!is_numeric(p, left, right)){
+                if(!is_numeric(p, left, right,0)){
                     trigger_parser_err(p, "Cannot compare!");
                 }
                 if(left.is_const && right.is_const){
@@ -763,7 +764,7 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
                 // emit_pushrax(p->m);
                 lexer_next(p->l);
                 expr(p, &right, OPP_Assign,0);
-                if(!is_numeric(p, left, right)){
+                if(!is_numeric(p, left, right,1)){
                     trigger_parser_err(p, "Requre 2 numeric variable!");
                 }
                 if(left.is_const && right.is_const){
