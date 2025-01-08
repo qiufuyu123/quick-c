@@ -19,7 +19,8 @@ void panic_oom(const char *msg){
 
 
 void module_pack_jit(module_t*v){
-    v->jit_compiled_len = 4096*glo_flag.jit_pg_no;
+
+    v->jit_compiled_len = 4096*(glo_flag.jit_pg_no+1);
 
     char *memory = mmap(NULL,             // address
                       v->jit_compiled_len,             // size
@@ -27,14 +28,18 @@ void module_pack_jit(module_t*v){
                       MAP_PRIVATE | MAP_ANONYMOUS,
                       -1,               // fd (not used here)
                       0);               // offset (not used here)
-    v->jit_compiled = memory;
+    v->jit_compiled = memory+4096;
     v->jit_cur=0;
+    v->got_start = memory;
 }
 
 void module_init(module_t *v, vm_string_t name){
     v->name = name;
     vec_init(&v->str_table, 1, 64);
     vec_init(&v->reloc_table, sizeof(u32), 2);
+    vec_init(&v->got_table, 8, 64);
+    u64 str_entry = 0;
+    vec_push(&v->got_table, &str_entry);
     if(hashmap_create(2, &v->sym_table)){
         panic_oom("Fail to alloc sym_table");
     }
@@ -105,15 +110,45 @@ int module_add_string(module_t *m,vm_string_t str){
     return ret;
 }
 
+void emit_eip_addr(module_t *v,char dst, int pc_offset){
+    pc_offset -= 0x07;
+    if(dst < REG_R8){
+        emit(v, 0x48);
+    }else {
+        dst -= REG_R8;
+        emit(v, 0x4c);
+    }
+    emit(v, 0x8b);
+    emit(v, ((const char[]){0x05,0x0d,0x15,0x1d,0x35,0x3d})[dst]);
+    emit_data(v, 4, &pc_offset);
+}
+
 void module_add_reloc(module_t *m, u32 addr){
     vec_push(&m->reloc_table, &addr);
+}
+
+u64 module_add_got(module_t *m, u64 addr){
+    vec_push(&m->got_table, &addr);
+    return m->got_table.size;
+}
+
+void module_set_got(module_t *m,u64 idx,u64 addr){
+    *((u64*)vec_at(&m->got_table, idx-1))=addr;
+}
+
+u64 module_get_got(module_t *m,u64 idx){
+    return *((u64*)vec_at(&m->got_table, idx-1));
+}
+
+void emit_access_got(module_t *m,char dst,u64 idx){
+    emit_eip_addr(m,dst,-m->jit_cur-idx*8);
 }
 
 function_frame_t *function_new(u64 ptr){
     function_frame_t* r= malloc(sizeof(function_frame_t));
     if(!r)
         panic_oom("Fail to alloc function frame");
-    r->ptr = ptr;
+    r->got_index = ptr;
     hashmap_create(1, &r->arg_table);
     r->size=0;
     return r;
@@ -123,7 +158,7 @@ var_t* var_new_base(char type,u64 v,int ptr,bool isglo,proto_t* prot,bool isarr)
     var_t* r= malloc(sizeof(var_t));
     if(!r)
         panic_oom("Fail to alloc var");
-    r->base_addr = v;
+    r->got_index = v;
     r->type = type;
     r->ptr_depth = ptr;
     r->prot = prot;
@@ -170,7 +205,7 @@ int _iter_destroy_proto(void *const context,struct hashmap_element_s* const e){
 int _iter_destroy(void *const context,struct hashmap_element_s* const e){
     var_t *nv = (var_t*)e->data;
     if(nv->type == TP_FUNC){
-        function_frame_t *fram = (function_frame_t*)nv->base_addr;
+        function_frame_t *fram = (function_frame_t*)nv->got_index;
         if(fram){
             // hashmap_iterate_pairs(&fram->arg_table, _iter_destroy, 0);
             hashmap_destroy(&fram->arg_table);
@@ -233,10 +268,15 @@ int _sym_iter_call(void* const context,struct hashmap_element_s* const e){
     char buf[100]={0};
     memcpy(buf, e->key, e->key_len);
     var_t* addr = (var_t*)e->data;
-    printf("@%s: 0x%llx",buf,addr->base_addr);
+    module_t *m = context;
+    printf("@%s: 0x%llx",buf,addr->got_index);
     if(addr->type == TP_FUNC){
-        function_frame_t* fram = (function_frame_t*)addr->base_addr;
-        printf("--%llx",fram->ptr);
+        function_frame_t* fram = (function_frame_t*)addr->got_index;
+        printf("--%llx",fram->got_index);
+        printf("--%llx",module_get_got(m,fram->got_index));
+    }else {
+        printf("--%llx",module_get_got(m,addr->got_index));
+
     }
     printf("\n");
     return 0;
@@ -247,6 +287,7 @@ int _prot_impl_call(void* const context, struct hashmap_element_s* const e) {
     memcpy(buf, e->key, e->key_len);
     proto_sub_t* sub = e->data;
     _prot_impl_t *p = context;
+    
     if(sub->builtin == TP_CUSTOM){
         u32 old = p->offset;
         p->offset+=sub->offset;
@@ -254,7 +295,7 @@ int _prot_impl_call(void* const context, struct hashmap_element_s* const e) {
         p->offset = old;
     }else if(sub->impl){
         function_frame_t *fb = (function_frame_t*)sub->impl;
-        emit_load(p->p,REG_BX,fb->ptr);
+        emit_load(p->p,REG_BX,fb->got_index);
         emit(p->p, 0x48);emit(p->p,0x89);emit(p->p,0x98);
         u32 dst = p->offset+sub->offset;
         emit_data(p->p, 4, &dst);
@@ -262,9 +303,9 @@ int _prot_impl_call(void* const context, struct hashmap_element_s* const e) {
     return 0;
 }
 
-void glo_sym_debug(hashmap_t *map){
+void glo_sym_debug(module_t*p, hashmap_t *map){
     printf("sym global: \n");
-    hashmap_iterate_pairs(map,_sym_iter_call,0);
+    hashmap_iterate_pairs(map,_sym_iter_call,p);
     printf("sym table end.\n");
 } 
 
@@ -287,7 +328,7 @@ u64 module_get_func(module_t*v, char *name){
         return 0;
     if(var->type != TP_FUNC)
         return 0;
-    return ((function_frame_t*)var->base_addr)->ptr;
+    return ((function_frame_t*)var->got_index)->got_index;
 }
 
 proto_sub_t* subproto_new(int offset,char builtin,proto_t*prot,int ptrdepth,bool isarr){

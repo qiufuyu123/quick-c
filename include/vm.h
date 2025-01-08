@@ -53,7 +53,7 @@ typedef struct{
 
 typedef struct{
     char type;
-    u64 base_addr;
+    u64 got_index;
     proto_t *prot; // prototype
     int ptr_depth; // pointer 
     bool isglo;
@@ -62,11 +62,12 @@ typedef struct{
     char reg_used;
 }var_t;
 
+
 typedef struct{
     vm_string_t name;
 
     char *jit_compiled;
-    
+    char *got_start;
     int jit_compiled_len; // real used length
 
     int jit_cur;
@@ -79,6 +80,7 @@ typedef struct{
 
     vec_t reloc_table;
     vec_t str_table;
+    vec_t got_table;
 
     u64 data;
     u64 stack;
@@ -91,7 +93,7 @@ typedef struct{
 #define TKSTR2VMSTR(s,l) (vm_string_t){.len = l,.ptr = s}
 
 typedef struct{
-    u64 ptr;
+    u64 got_index;
     hashmap_t arg_table;
     proto_sub_t ret_type;
     int size;
@@ -121,6 +123,14 @@ void module_add_var(module_t* m,var_t *v,vm_string_t name);
 int module_add_string(module_t *m,vm_string_t str);
 
 void module_add_reloc(module_t *m, u32 addr);
+
+u64 module_add_got(module_t *m, u64 addr);
+
+void module_set_got(module_t *m,u64 idx,u64 addr);
+
+u64 module_get_got(module_t *m,u64 idx);
+
+void emit_access_got(module_t *m,char dst,u64 idx);
 
 var_t* var_new_base(char type,u64 v,int ptr,bool isglo,proto_t *prot, bool is_arr);
 
@@ -162,6 +172,9 @@ void emit_call_reg(module_t *v,char r);
 
 void emit_push_reg(module_t *v,char r);
 void emit_pop_reg(module_t *v,char r);
+
+void emit_eip_addr(module_t *v,char dst, int pc_offset);
+
 void emit_mov_r2r(module_t*v,char dst,char src);
 
 void emit_mov_addr2r(module_t*v,char dst,char src,char wide_type);
@@ -196,7 +209,7 @@ u64 emit_label_load(module_t* v,char r);
 
 void proto_impl(module_t *p, proto_t *type);
 
-void glo_sym_debug(hashmap_t *map);
+void glo_sym_debug(module_t *p, hashmap_t *map);
 
 void stack_debug(hashmap_t *map);
 

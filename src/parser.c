@@ -41,7 +41,7 @@ void trigger_parser_err(parser_t* p,const char *s,...){
     output_surrounding(p);
     printf("Error: %s('%s') At %s\n",buf,bufname,p->l->path);
     // exit(1);
-    glo_sym_debug(&p->m->sym_table);
+    glo_sym_debug(p->m,&p->m->sym_table);
     longjmp(err_callback, 1);
 }
 
@@ -198,13 +198,16 @@ void stmt_loop(parser_t *p){
     p->reg_table = old_regs;
 }
 
-bool var_is_extern(var_t *v){
+bool var_is_extern(parser_t *p, var_t *v){
     if(v == 0)
         return 0;
-    if(v->base_addr == 0 && v->isglo)
+    if(v->got_index == 0 && v->isglo)
         return 1;
+    
     if(v->type == TP_FUNC){
-        return ((function_frame_t*)v->base_addr)->ptr == 0;
+        return  module_get_got(p->m,((function_frame_t*)v->got_index)->got_index) == 0;
+    }else if(v->isglo && module_get_got(p->m, v->got_index) == 0){
+        return 1;
     }
     return 0;
 }
@@ -236,7 +239,7 @@ var_t* var_def(parser_t*p, bool is_extern,char builtin, proto_t *prot){
     u64 arr = 0;
     int sz = def_stmt(p, &ptr_depth, &builtin, &prot,NULL,1);
     var_t* nv = var_exist(p);
-    if(nv && !var_is_extern(nv)){
+    if(nv && !var_is_extern(p,nv)){
         if(is_extern ){
             // ignore this line...
             lexer_skip_till(p->l, ';');
@@ -273,17 +276,21 @@ var_t* var_def(parser_t*p, bool is_extern,char builtin, proto_t *prot){
             p->isglo = FALSE;
             
             
-            if(!nv->base_addr){
+            if(!nv->got_index){
                 func = function_new(0);
-                nv->base_addr = (u64)func;
+                nv->got_index = (u64)func;
             }else{
-                func = (function_frame_t*)nv->base_addr;
+                func = (function_frame_t*)nv->got_index;
+            }
+            if(func->got_index == 0){
+                func->got_index = module_add_got(p->m, 0);
             }
             i32* jmp_rel = 0;
             u64* preserv = 0;
             if(!is_extern){
                 jmp_rel = emit_reljmp_flg(p->m);
-                func->ptr = (u64)jit_top(p->m);
+                u64 ptr = (u64)jit_top(p->m)-(u64)p->m->jit_compiled;
+                module_set_got(p->m, func->got_index, ptr);
                 emit(p->m, 0x55);//push rbp
                 emit_mov_r2r(p->m, REG_BP, REG_SP); // mov rbp,rsp
                 preserv = emit_offsetrsp(p->m, 128,1); // use 128 make sure code generate use 4bytes for length
@@ -340,13 +347,24 @@ var_t* var_def(parser_t*p, bool is_extern,char builtin, proto_t *prot){
         }
        
     }
+    if(nv->isglo){
+        if(nv->got_index == 0){
+            nv->got_index =  module_add_got(p->m, 0);
+        }
+    }
     if(is_extern){
         //printf("Extern variable\n");
         return nv;
     }
     if(p->isglo){
         //printf("variable alloc %d bytes on heap!\n",arr?arr*sz:sz);
-        nv->base_addr = func?(u64)func:reserv_data(p->m, arr?arr*sz:sz);
+        if(func){
+            // nv->got_index = (u64)func;
+            trigger_parser_err(p, "Var def line 362\n");
+        }else {
+            u64 ptr = reserv_data(p->m, arr?arr*sz:sz);
+            module_set_got(p->m, nv->got_index,ptr);
+        }
         if(arr){
             nv->is_arr = 1;
         }
@@ -370,7 +388,7 @@ var_t* var_def(parser_t*p, bool is_extern,char builtin, proto_t *prot){
             nv->is_arr = 1;
         }
         p->m->stack+=(arr?arr*sz:sz);
-        nv->base_addr = p->m->stack;
+        nv->got_index = p->m->stack;
         // if(arr){
         //     u32 offset = p->m->stack;
         //     p->m->stack+=8;

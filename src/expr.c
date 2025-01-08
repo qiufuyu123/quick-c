@@ -16,7 +16,7 @@ void load_const(parser_t *p, var_t *left){
         return;
     }
     char r = acquire_reg(p);
-    emit_load(p->m, r, left->base_addr);
+    emit_load(p->m, r, left->got_index);
     left->reg_used = r;
     left->is_const = 0;
 }
@@ -108,7 +108,7 @@ void prepare_calling(parser_t*p, char call_r){
                                 no ==5?REG_R8:
                                 REG_R9;
         if(inf.is_const)
-            emit_load(p->m, target, inf.base_addr);
+            emit_load(p->m, target, inf.got_index);
         else {
             emit_mov_r2r(p->m,target, inf.reg_used);
             release_reg(p, inf.reg_used);
@@ -142,7 +142,7 @@ void prepare_calling(parser_t*p, char call_r){
 void func_call(parser_t *p,var_t* inf){
     if(inf->type == TP_FUNC){
         
-        function_frame_t *func = (function_frame_t*)inf->base_addr;
+        function_frame_t *func = (function_frame_t*)inf->got_index;
         // set up arguments
         prepare_calling(p,inf->reg_used);
         // emit_mov_r2r(p->m, REG_AX, REG_BX);
@@ -167,11 +167,11 @@ void prep_assign(parser_t *p,var_t *v){
     if(v->type == TP_CUSTOM && v->ptr_depth == 0)
         trigger_parser_err(p, "Struct is not supported");
     if(v->isglo){
-        emit_loadglo(p->m, v->base_addr == 0?(u64)&v->base_addr:v->base_addr,v->reg_used,v->base_addr == 0);
+        emit_access_got(p->m, v->reg_used, v->got_index);
     }
     else{
         emit_mov_r2r(p->m, v->reg_used, REG_BP);
-        emit_sub_regimm(p->m,v->reg_used, v->base_addr);
+        emit_sub_regimm(p->m,v->reg_used, v->got_index);
     };
 }
 
@@ -210,9 +210,9 @@ void array_visit(parser_t*p,var_t *inf,bool leftval){
     expr(p, &left,OPP_Assign,0);
     lexer_expect(p->l, ']');
     if(left.is_const){
-        if(left.base_addr != 0){
+        if(left.got_index != 0){
             left.reg_used = acquire_reg(p);
-            emit_load(p->m, left.reg_used, left.base_addr * offset);
+            emit_load(p->m, left.reg_used, left.got_index * offset);
             emit_addr2r(p->m, inf->reg_used, left.reg_used);
             release_reg(p, left.reg_used);
         }
@@ -270,20 +270,20 @@ void expr_ident(parser_t* p, var_t *inf){
     char r = acquire_reg(p);
     if(parent.isglo){
         if(parent.type == TP_FUNC){
-            function_frame_t *fram = (function_frame_t*)parent.base_addr;
-            if(fram->ptr == 0){
-                // extern sym
-                //printf("Load extern sym!\n");
-                emit_loadglo(p->m, (u64)(t), r,1);
+            function_frame_t *fram = (function_frame_t*)parent.got_index;
+
+            if(fram->got_index == 0){
+                trigger_parser_err(p, "Internal Err: got_index of a func frame is zero");
+                //impossible
             }
-            else if((u64)fram->ptr >= (u64)p->m->jit_compiled && (u64)fram->ptr < (u64)p->m->jit_compiled + p->m->jit_compiled_len){
-                emit_loadglo(p->m, (u64)fram->ptr - (u64)p->m->jit_compiled,r,0);
+            else {
+                emit_access_got(p->m, r, fram->got_index);
             }
         }
-        else emit_loadglo(p->m, parent.base_addr == 0?((u64)t):parent.base_addr,r,parent.base_addr == 0);
+        else emit_access_got(p->m, r,parent.got_index);
     }else{
         emit_mov_r2r(p->m, r, REG_BP);
-        emit_sub_regimm(p->m, r, parent.base_addr);
+        emit_sub_regimm(p->m, r, parent.got_index);
         // emit_sub_rbx(p->m, parent.base_addr);
     }
     parent.reg_used = r;
@@ -414,7 +414,7 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
     bool is_left_only = (ctx_priority == OPP_LeftOnly);
     if(type == TK_INT){
         left.is_const = 1;
-        left.base_addr = token.integer;
+        left.got_index = token.integer;
         
     }else if(type == '"'){
         int i = p->l->cursor;
@@ -430,9 +430,11 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
             trigger_parser_err(p, "Fail to parse string constant!");
         }
         char r = acquire_reg(p);
-        u64* addr = (u64*)emit_label_load(p->m, r);
-        *addr = v | STRTABLE_MASK;
-        module_add_reloc(p->m, (u64)addr - (u64)p->m->jit_compiled);
+        emit_access_got(p->m, r, 1);
+        emit_add_regimm(p->m, r, v);
+        // u64* addr = (u64*)emit_label_load(p->m, r);
+        // *addr = v | STRTABLE_MASK;
+        // module_add_reloc(p->m, (u64)addr - (u64)p->m->jit_compiled);
         left.reg_used = r;
         //printf("NEW str:%llx\n",v | STRTABLE_MASK);
         left.ptr_depth = 1;
@@ -450,7 +452,7 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
         if(!left.is_const){
             emit_unary(p->m, left.reg_used, UOP_NOT);
         }else {
-            left.base_addr = ~left.base_addr;
+            left.got_index = ~left.got_index;
         }
         
     }else if(type == '-'){
@@ -460,7 +462,7 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
             if(!left.is_const)
                 emit_unary(p->m, left.reg_used, UOP_NEG);
             else
-                left.base_addr = -left.base_addr;
+                left.got_index = -left.got_index;
         }else {
             trigger_parser_err(p, "Cannot neg!");
         }
@@ -553,7 +555,7 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
         int offset= struct_offset(p, type, p->l->tk_now, 0);
         lexer_expect(p->l, ')');
         left.is_const = 1;
-        left.base_addr = offset;
+        left.got_index = offset;
     }
     else if(type == TK_SIZEOF){
         //lexer_next(p->l);
@@ -579,7 +581,7 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
                 }
             }
             left.is_const = 1;
-            left.base_addr = size;
+            left.got_index = size;
         }else {
             trigger_parser_err(p, "Expect a type!");
         }
@@ -736,8 +738,8 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
                     trigger_parser_err(p, "Cannot add!");
                 }
                 if(left.is_const && right.is_const){
-                    if(type == '+') left.base_addr += right.base_addr;
-                    else            left.base_addr -= right.base_addr;
+                    if(type == '+') left.got_index += right.got_index;
+                    else            left.got_index -= right.got_index;
                 }else{
                     load_const(p, &left);
                     load_const(p, &right);
@@ -758,9 +760,9 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
                     trigger_parser_err(p, "Cannot add!");
                 }
                 if(left.is_const && right.is_const){
-                    if(type == '*') left.base_addr *= right.base_addr;
-                    else if(type == '/') left.base_addr /= right.base_addr;
-                    else                 left.base_addr %= right.base_addr;
+                    if(type == '*') left.got_index *= right.got_index;
+                    else if(type == '/') left.got_index /= right.got_index;
+                    else                 left.got_index %= right.got_index;
                 }else{
                     load_const(p, &left);
                     load_const(p, &right);
@@ -778,12 +780,12 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
                     trigger_parser_err(p, "Cannot compare!");
                 }
                 if(left.is_const && right.is_const){
-                    if     (lt) left.base_addr = (left.base_addr > right.base_addr);
-                    else if(gt) left.base_addr = (left.base_addr < right.base_addr);
-                    else if(ne) left.base_addr = (left.base_addr != right.base_addr);
-                    else if(eql) left.base_addr = (left.base_addr == right.base_addr);
-                    else if(fle) left.base_addr = (left.base_addr <= right.base_addr);
-                    else if(type == TK_GE) left.base_addr = (left.base_addr >= right.base_addr);
+                    if     (lt) left.got_index = (left.got_index > right.got_index);
+                    else if(gt) left.got_index = (left.got_index < right.got_index);
+                    else if(ne) left.got_index = (left.got_index != right.got_index);
+                    else if(eql) left.got_index = (left.got_index == right.got_index);
+                    else if(fle) left.got_index = (left.got_index <= right.got_index);
+                    else if(type == TK_GE) left.got_index = (left.got_index >= right.got_index);
 
                 }else{
                     load_const(p, &left);
@@ -822,9 +824,9 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
                     trigger_parser_err(p, "Requre 2 numeric variable!");
                 }
                 if(left.is_const && right.is_const){
-                    if(or)       left.base_addr |= right.base_addr;
-                    else if(and) left.base_addr &= right.base_addr;
-                    else if(xor) left.base_addr ^= right.base_addr;
+                    if(or)       left.got_index |= right.got_index;
+                    else if(and) left.got_index &= right.got_index;
+                    else if(xor) left.got_index ^= right.got_index;
                 }else{
                     load_const(p, &left);
                     load_const(p, &right);
@@ -838,8 +840,8 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
                 lexer_next(p->l);
                 expr(p,&right,OPP_Add,0);
                 if(left.is_const && right.is_const){
-                    if(type == TK_LSHL) left.base_addr <<= right.base_addr;
-                    else                left.base_addr >>= right.base_addr;
+                    if(type == TK_LSHL) left.got_index <<= right.got_index;
+                    else                left.got_index >>= right.got_index;
                 }else{
                     load_const(p, &left);
                     load_const(p, &right);

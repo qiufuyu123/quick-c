@@ -62,6 +62,6 @@ void trigger_parser_err(parser_t* p,const char *s,...);
 //bool expr_base(parser_t *p,var_t *inf,bool needptr);
 
 module_t* module_compile(char *path,char *module_name, int name_len,bool is_module,module_t *previous,char is_last);
-int link_local(module_t *mod,u64 base_data, u64 base_code, u64 base_str);
+int link_local(module_t *mod,u64 base_data, u64 base_code, u64 base_str,u64 base_got);
 int link_jit(module_t *mod);
 #endif

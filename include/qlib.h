@@ -10,13 +10,15 @@ typedef struct{
     u64 data_base;
     u64 str_base;
 
-    u64 main_entry; 
-    u32 reloc_table_offset;
-    u32 reloc_num;
+    u32 main_offset;
+    u64 got_offset;
+    u64 got_size;
     u32 code_offset;
     u32 code_sz;
     u32 str_offset;
     u32 str_sz;
+    u32 export_offset;
+    u32 export_size;
     u32 data_sz;
     u8 compile_info[64];
 }qlib_exe_t;

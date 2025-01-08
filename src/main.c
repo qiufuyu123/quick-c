@@ -94,13 +94,14 @@ int main(int argc, char **argv) {
     printf("Compile %s OK\n", argv[glo_flag.src_start + i]);
   }
   entry->alloc_data = 0;
-  if (glo_flag.glo_sym_table) {
-    glo_sym_debug(&entry->sym_table);
-  }
+  
   if (glo_flag.dst)
     printf("%s\n", glo_flag.dst);
   if (link_jit(entry) != 1) {
     exit(-1);
+  }
+  if (glo_flag.glo_sym_table) {
+    glo_sym_debug(entry, &entry->sym_table);
   }
   int (*start)() = entry->jit_compiled;
 
@@ -117,7 +118,7 @@ int main(int argc, char **argv) {
     printf("RUN %d\n", start());
   }
   if (glo_flag.need_qlib && !glo_flag.norun) {
-    u64 qlib_entry = module_get_func(entry, "_start_");
+    u64 qlib_entry = module_get_got(entry,module_get_func(entry, "_start_"));
     if (!qlib_entry) {
       printf("[ERRO]: Cannot find main-entry(qlibc) _start_\n");
       exit(-1);
