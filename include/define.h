@@ -17,11 +17,11 @@ typedef unsigned int u32;
 typedef long long i64;
 typedef long long u64;
 
-#ifndef BOOT_C
-#define char ERROR_ERROR
-#define int ERROR_ERROR
-#define unsigned ERROR_ERROR
-#endif
+// #ifndef BOOT_C
+// #define char ERROR_ERROR
+// #define int ERROR_ERROR
+// #define unsigned ERROR_ERROR
+// #endif
 #define bool u8
 #define TRUE 1 
 #define FALSE 0

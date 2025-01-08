@@ -211,4 +211,6 @@ void emit_unary(module_t *v,char r, char type);
 void emit_binary(module_t *v,char dst,char src, char type,char opwide);
 
 void emit_gsbase(module_t *v, char r, char is_read);
+
+void emit_settry(module_t *v);
 #endif

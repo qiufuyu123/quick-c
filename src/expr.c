@@ -5,6 +5,7 @@
 #include "vec.h"
 #include "vm.h"
 #include <stdio.h>
+#include <string.h>
 
 extern u64 debuglibs[2];
 
@@ -400,6 +401,7 @@ bool is_signed(char left, char right){
 }
 
 extern flgs_t glo_flag;
+
 bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
     if(glo_flag.opt_pass == 0){
         no_const = 1;
@@ -471,6 +473,33 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
         left.ptr_depth++;
         // emit_mov_r2r(p->m, REG_AX, REG_BX);
 
+    }else if(type == TK_JIT){
+        // @register
+        lexer_next(p->l);
+        token_t name = p->l->tk_now;
+        if(name.type != TK_IDENT){
+            trigger_parser_err(p, "Need a register name after @!");
+        }
+        int len = name.length;
+        if(len<2 || len > 3){
+            trigger_parser_err(p, "It's not a valid register name!");
+        }
+        char dst = REG_FULL;
+        char *rname = &p->l->code[name.start];
+        const char* reg_names[REG_FULL] = {"rax","rcx","rdx","rbx","rsp","rbp","rsi",
+        "rdi","r8","r9","r10","r11","r12","r13","r14","r15"};
+        for (int i =0; i<REG_FULL; i++) {
+            if(!strncmp(rname, reg_names[i],len)){
+                dst = i;
+                break;
+            }
+        }
+        if(dst == REG_FULL){
+            trigger_parser_err(p, "It's not a valid register name!");
+        }
+        left.reg_used = dst;
+        left.type = TP_U64;
+        
     }else if(type == '*'){
         lexer_next(p->l);
         if(expr(p, &left, OPP_Inc,1)==0){

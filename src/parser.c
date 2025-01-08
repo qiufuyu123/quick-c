@@ -531,7 +531,6 @@ void stmt(parser_t *p,bool expect_end){
     }else if(tt == TK_ENUM){
         
     }else if(tt == TK_JIT){
-        printf("jit");
         lexer_expect(p->l, '(');
         lexer_next(p->l);
         if(p->l->tk_now.type != TK_IDENT){

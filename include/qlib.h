@@ -1,5 +1,6 @@
 #include "define.h"
 
+#pragma pack(1)
 typedef struct{
     u8 magic[4]; // Q L I B
     u8 type;
@@ -19,3 +20,9 @@ typedef struct{
     u32 data_sz;
     u8 compile_info[64];
 }qlib_exe_t;
+
+typedef struct{
+    
+}qlib_jit_runtime_t;
+
+#pragma pack()
