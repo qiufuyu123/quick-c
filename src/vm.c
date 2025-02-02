@@ -36,7 +36,7 @@ void module_pack_jit(module_t*v){
 void module_init(module_t *v, vm_string_t name){
     v->name = name;
     vec_init(&v->str_table, 1, 64);
-    vec_init(&v->reloc_table, sizeof(u32), 2);
+    vec_init(&v->export_table,8, 64);
     vec_init(&v->got_table, 8, 64);
     u64 str_entry = 0;
     vec_push(&v->got_table, &str_entry);
@@ -121,10 +121,6 @@ void emit_eip_addr(module_t *v,char dst, int pc_offset){
     emit(v, 0x8b);
     emit(v, ((const char[]){0x05,0x0d,0x15,0x1d,0x35,0x3d})[dst]);
     emit_data(v, 4, &pc_offset);
-}
-
-void module_add_reloc(module_t *m, u32 addr){
-    vec_push(&m->reloc_table, &addr);
 }
 
 u64 module_add_got(module_t *m, u64 addr){
@@ -369,7 +365,7 @@ void module_release(module_t *entry){
     hashmap_destroy(&entry->sym_table);
     hashmap_destroy(&entry->local_sym_table);
     hashmap_destroy(&entry->prototypes);
-    vec_release(&entry->reloc_table);
+    vec_release(&entry->export_table);
     vec_release(&entry->str_table);
     if(entry->alloc_data){
         free((void*)entry->alloc_data);

@@ -150,13 +150,6 @@ void emit_restore_stack(module_t *v,u64 offset){
         emit_offsetrsp(v, offset, 0);
 }
 
-void emit_loadglo(module_t *v, u64 base_addr,char r,bool is_undef){
-    u64*ptr =(u64*)emit_label_load(v,r);
-    *ptr = base_addr;
-    u32 val = (u64)ptr - (u64)v->jit_compiled;
-    module_add_reloc(v, is_undef?val|EXTERN_MASK:val);
-}
-
 void emit_reg2rbp(module_t*v,char src,i32 offset){
     offset = -offset;
     switch (src) {
@@ -217,23 +210,11 @@ i32* emit_reljmp_flg(module_t *v){
     return (i32*)ret;
 }
 
-u64 *jit_restore_off(module_t *v,int off){
-    return (u64*)((u64)v->jit_compiled+off);
-}
-
 void emit_call(module_t *v,u64 addr){
     emit_load(v, REG_AX, addr);
     emit(v, 0xff);emit(v,0xd0); // callq [rax]
 }
 
-u64 emit_label_load(module_t* v,char r){
-    emit_load(v,r,0);
-    // emit(v, 0x48);emit(v,isrbx?0xbb:0xb8);
-    u64 ret = (u64)v->jit_compiled+ v->jit_cur-8;
-    // u64 def = 0;
-    // emit_data(v, 8, &def);
-    return ret;
-}
 
 void backup_caller_reg(module_t *v,int no){
     emit(v, no == 1?0x57:

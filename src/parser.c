@@ -239,13 +239,15 @@ var_t* var_def(parser_t*p, bool is_extern,char builtin, proto_t *prot){
     u64 arr = 0;
     int sz = def_stmt(p, &ptr_depth, &builtin, &prot,NULL,1);
     var_t* nv = var_exist(p);
+    char check_func_extern = 0;
     if(nv && !var_is_extern(p,nv)){
         if(is_extern ){
             // ignore this line...
             lexer_skip_till(p->l, ';');
             return nv;
         }
-        trigger_parser_err(p, "variable is already existed!");
+        check_func_extern = 1;
+       
     }
 
     token_t name = p->l->tk_now;
@@ -331,7 +333,10 @@ var_t* var_def(parser_t*p, bool is_extern,char builtin, proto_t *prot){
         
         p->isglo = TRUE;
         return nv;
-    }else if(lexer_skip(p->l, '[')){
+    }else if(check_func_extern){
+        trigger_parser_err(p, "variable is already existed!");
+    }
+    else if(lexer_skip(p->l, '[')){
         // u8 a[8];
         lexer_next(p->l);
         arr =  token2num(p);
@@ -461,15 +466,16 @@ int expression(parser_t*p){
             trigger_parser_err(p, "Expect 'TAG' or other flags for compiler.");
         }
         if(!strncmp(&p->l->code[type.start], "tag", 3)){
-            lexer_expect(p->l, '=');
-            type = lexer_next(p->l);
-            if(type.type != TK_IDENT){
-                trigger_parser_err(p, "Expect tag information.");
-            }
-            u64*label = emit_jmp_flg(p->m);
-            emit_data(p->m, type.length, &p->l->code[type.start]);
-            *label = (u64)jit_top(p->m)-(u64)p->m->jit_compiled;
-            module_add_reloc(p->m, (u64)label - (u64)p->m->jit_compiled);
+            trigger_parser_err(p, "Not supported!");
+            // lexer_expect(p->l, '=');
+            // type = lexer_next(p->l);
+            // if(type.type != TK_IDENT){
+            //     trigger_parser_err(p, "Expect tag information.");
+            // }
+            // u64*label = emit_jmp_flg(p->m);
+            // emit_data(p->m, type.length, &p->l->code[type.start]);
+            // *label = (u64)jit_top(p->m)-(u64)p->m->jit_compiled;
+            // module_add_reloc(p->m, (u64)label - (u64)p->m->jit_compiled);
         }else {
             trigger_parser_err(p, "Unknow type.");
         }

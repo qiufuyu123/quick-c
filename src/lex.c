@@ -9,24 +9,7 @@
 #include <stdarg.h>
 static hashmap_t const_table;
 token_t line_macro;
-// Magic prime number for FNV hashing.
-#define FNV_64_PRIME ((u64) 0x100000001b3ULL)
-u64 hash_string(char *string, int length) {
-	// Convert to an unsigned string
-	unsigned char *str = (unsigned char *) string;
 
-	// Hash each byte of the string
-	u64 hash = 0;
-	for (int i = 0; i < length; i++) {
-		// Multiply by the magic prime, modulo 2^64 from integer overflow
-		hash *= FNV_64_PRIME;
-
-		// XOR the lowest byte of the hash with the current octet
-		hash ^= (u64) *str++;
-	}
-
-	return hash;
-}
 static inline int is_whitespace(char ch) {
 	return ch == '\r' || ch == '\n' || ch == '\t' || ch == ' ';
 }
@@ -185,7 +168,7 @@ static token_t lex_ident(Lexer_t *lxr) {
     }else {
         // Didn't find a matching keyword, so we have an identifier
         lxr->tk_now.type = TK_IDENT;
-        lxr->tk_now.id = hash_string(ident, lxr->tk_now.length);
+        lxr->tk_now.id = 0;
     }
 
 	

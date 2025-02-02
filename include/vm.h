@@ -78,7 +78,7 @@ typedef struct{
 
     hashmap_t local_sym_table;
 
-    vec_t reloc_table;
+    vec_t export_table;
     vec_t str_table;
     vec_t got_table;
 
@@ -122,8 +122,6 @@ void module_add_var(module_t* m,var_t *v,vm_string_t name);
 
 int module_add_string(module_t *m,vm_string_t str);
 
-void module_add_reloc(module_t *m, u32 addr);
-
 u64 module_add_got(module_t *m, u64 addr);
 
 void module_set_got(module_t *m,u64 idx,u64 addr);
@@ -147,8 +145,6 @@ proto_sub_t* subproto_new(int offset,char builtin,proto_t*prot,int ptrdepth,bool
 void emit(module_t *v,char op);
 
 u64* jit_top(module_t *v);
-
-u64 *jit_restore_off(module_t *v,int off);
 
 void module_clean_stack_sym(module_t *v);
 
@@ -193,8 +189,6 @@ u64 emit_offset_stack(module_t *v);
 
 void emit_restore_stack(module_t *v,u64 offset);
 
-void emit_loadglo(module_t *v, u64 base_addr,char r, bool is_undef);
-
 void emit_reg2rbp(module_t*v,char src,i32 offset);
 
 u64* emit_offsetrsp(module_t*v,u32 offset,bool sub);
@@ -204,8 +198,6 @@ void emit_call(module_t *v,u64 addr);
 u64* emit_jmp_flg(module_t*v);
 
 i32* emit_reljmp_flg(module_t *v);
-
-u64 emit_label_load(module_t* v,char r);
 
 void proto_impl(module_t *p, proto_t *type);
 

@@ -12,6 +12,29 @@
 
 extern flgs_t glo_flag;
 
+typedef struct{
+    module_t *mod;
+    u32 export_cnt;
+    FILE *obj;
+}linker_data_t;
+
+static int _sym_iter_call(void* const context,struct hashmap_element_s* const e){
+    var_t* addr = (var_t*)e->data;
+    linker_data_t *lkdat = context;
+    module_t *m = lkdat->mod;
+    FILE *f = lkdat->obj;
+    int str_idx = module_add_string(m, (vm_string_t){e->key_len,e->key});
+    fwrite(&str_idx, 4, 1, f);
+    if(addr->type == TP_FUNC){
+        function_frame_t* fram = (function_frame_t*)addr->got_index;
+        fwrite(&fram->got_index, 4, 1, f);
+    }else {
+        fwrite(&addr->got_index, 4, 1, f);
+    }
+    lkdat->export_cnt++;
+    return 0;
+}
+
 int link_jit(module_t *mod){
     // if(glo_flag.need_qlib){
     //     for (int i = 0; i<DBG_NUM; i++) {
@@ -93,12 +116,22 @@ int link_local(module_t *mod,u64 base_data, u64 base_code, u64 base_str, u64 bas
         file_header.got_size = mod->got_table.size * 8;
         file_header.code_offset = file_header.got_offset + file_header.got_size;
         fwrite((char*)mod->jit_compiled-file_header.got_size, mod->jit_cur+file_header.got_size, 1, f);
-        file_header.str_offset = (file_header.code_offset + mod->jit_cur);
+        file_header.export_offset = (file_header.code_offset + mod->jit_cur);
+        
+        linker_data_t tmp;
+        tmp.mod = mod;
+        tmp.export_cnt = 0;
+        tmp.obj = f;
+        hashmap_iterate_pairs(&mod->sym_table, _sym_iter_call, &tmp);
+        file_header.export_size = tmp.export_cnt * 8;
+        file_header.str_offset = file_header.export_offset + file_header.export_size;
         fwrite(mod->str_table.data, mod->str_table.size, 1, f);
+        file_header.str_sz = mod->str_table.size;
         fseek(f, 0, SEEK_SET);
         fwrite(&file_header, sizeof(file_header), 1, f);
         fclose(f);
     }
+
     printf("Linker Finish: code size:%d data size:%d str size:%d  main_offset%llx stroffset:%llx\n",mod->jit_cur,mod->data-DATA_MASK,mod->str_table.size,file_header.main_offset,file_header.str_offset);
     // printf("Linker finished! code_rel:%d,data_rel:%d\n",rel_code_cnt,rel_data_cnt);
     mod->alloc_data = base_data;
