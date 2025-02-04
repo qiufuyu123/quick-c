@@ -59,6 +59,7 @@ typedef struct{
     bool isglo;
     bool is_arr;
     bool is_const;
+    bool is_arg;
     char reg_used;
 }var_t;
 
@@ -143,6 +144,8 @@ u64 reserv_data(module_t *v,u32 size);
 proto_sub_t* subproto_new(int offset,char builtin,proto_t*prot,int ptrdepth,bool isarr);
 
 void emit(module_t *v,char op);
+
+u64* emit_flg(module_t *v,int bytes);
 
 u64* jit_top(module_t *v);
 

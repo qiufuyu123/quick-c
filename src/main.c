@@ -75,6 +75,7 @@ void check(int argc, char **argv) {
   }
   if (glo_flag.src_start == 0) {
     printf("ERRO: No src inputed!\n");
+    exit(-1);
   }
 }
 

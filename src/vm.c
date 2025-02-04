@@ -133,6 +133,7 @@ void module_set_got(module_t *m,u64 idx,u64 addr){
 }
 
 u64 module_get_got(module_t *m,u64 idx){
+    if(idx == 0)return 0;
     return *((u64*)vec_at(&m->got_table, idx-1));
 }
 
@@ -161,6 +162,7 @@ var_t* var_new_base(char type,u64 v,int ptr,bool isglo,proto_t* prot,bool isarr)
     r->isglo = isglo;
     r->is_const = 0;
     r->is_arr = isarr;
+    r->is_arg = 0;
     return r;
 
 }
@@ -347,6 +349,15 @@ void emit(module_t *v,char op){
     v->jit_cur++;
 }
 
+u64* emit_flg(module_t *v,int bytes){
+    u64 addr = (u64)v->jit_compiled+(u64)v->jit_cur;
+    v->jit_cur+=bytes;
+    if(v->jit_cur+1 >= v->jit_compiled_len){
+        panic_oom("JIT OOM");
+    }
+    return (u64*)addr;
+}
+
 u64* jit_top(module_t *v){
     return (u64*)(v->jit_compiled+v->jit_cur);
 }
@@ -367,6 +378,7 @@ void module_release(module_t *entry){
     hashmap_destroy(&entry->prototypes);
     vec_release(&entry->export_table);
     vec_release(&entry->str_table);
+    vec_release(&entry->got_table);
     if(entry->alloc_data){
         free((void*)entry->alloc_data);
     }

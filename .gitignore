@@ -5,3 +5,6 @@ build/
 quick-c
 *.bin
 .xmake/
+src/.cache
+*.json
+toolchain/bin/

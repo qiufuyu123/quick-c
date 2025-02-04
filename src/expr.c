@@ -84,34 +84,56 @@ void* var_exist_glo(parser_t *p){
     return ret;
 }
 
+/*
+ * WTF is this fucking codes...
+ *      vvv
+ */
 void prepare_calling(parser_t*p, char call_r){
     var_t inf;
     int no = 1,old_no = p->caller_regs_used;
     for (int i = 1; i<=p->caller_regs_used; i++) {
         backup_caller_reg(p->m, i);
     }
+     
+    p->reg_table.reg_used[call_r]=0; // To ignore the call register itself
+    save_usedreg(p);
+    p->reg_table.reg_used[call_r]=1;
+
+    u64 offset = 0;
     while (!lexer_skip(p->l, ')')) {
+        if(no == 7){
+            offset = emit_offset_stack(p->m);
+        }
+        u64 tmp = p->m->pushpop_stack;
+        if(no>6) p->m->pushpop_stack = 0;
         lexer_next(p->l);
         expr(p, &inf,OPP_Assign,0);
         if(inf.type == TP_CUSTOM && inf.ptr_depth == 0){
             trigger_parser_err(p, "Cannot pass a structure as argument!");
         }
-        if(no >= 7)
-            trigger_parser_err(p, "Too many arguments!");
-        if(no > p->caller_regs_used){
-            p->caller_regs_used = no;
-        }
-        char target = no == 1?REG_DI:
-                                no ==2?REG_SI:
-                                no ==3?REG_DX:
-                                no ==4?REG_CX:
-                                no ==5?REG_R8:
-                                REG_R9;
-        if(inf.is_const)
-            emit_load(p->m, target, inf.got_index);
-        else {
-            emit_mov_r2r(p->m,target, inf.reg_used);
+        if(no > 6){
+            p->m->pushpop_stack = tmp;
+            load_const(p, &inf);
+            emit_push_reg(p->m, inf.reg_used);
+            //emit_push_reg(p->m, inf.reg_used); // so we can align to 16 bytes
             release_reg(p, inf.reg_used);
+            // offset_bytes+=8;
+        }else{
+            if(no > p->caller_regs_used){
+                p->caller_regs_used = no;
+            }
+            char target = no == 1?REG_DI:
+                                    no ==2?REG_SI:
+                                    no ==3?REG_DX:
+                                    no ==4?REG_CX:
+                                    no ==5?REG_R8:
+                                    REG_R9;
+            if(inf.is_const)
+                emit_load(p->m, target, inf.got_index);
+            else {
+                emit_mov_r2r(p->m,target, inf.reg_used);
+                release_reg(p, inf.reg_used);
+            }
         }
         no++;
         if(lexer_skip(p->l, ')')){
@@ -120,21 +142,29 @@ void prepare_calling(parser_t*p, char call_r){
         lexer_expect(p->l, ',');
     }
     lexer_next(p->l);
-
-    p->reg_table.reg_used[call_r]=0;
-    save_usedreg(p);
-    u64 offset = emit_offset_stack(p->m);
+    no--;
+    if(no>6){
+        emit(p->m,0x6a);emit(p->m,no-6);
+    }
+    if(no<6)offset = emit_offset_stack(p->m);
     emit_call_reg(p->m, call_r);
     emit_mov_r2r(p->m, call_r, REG_AX);
-    emit_restore_stack(p->m, offset);
+    u64 extra_offset = no>6?(no-5)*8:0;
+
+
+    p->reg_table.reg_used[call_r]=0;
+
+    emit_restore_stack(p->m, offset+extra_offset);
     release_usedreg(p);
 
     p->reg_table.reg_used[call_r]=1;
+
     p->reg_table.next_free = REG_FULL;
     p->caller_regs_used = old_no;
     for (int i = p->caller_regs_used; i>=1; i--) {
         restore_caller_reg(p->m,i);
     }
+    //emit_offsetrsp(p->m, bytes_diff+((no>6)?8*(no-6):0)+(no>6), 0);
 
     
 }
@@ -283,7 +313,10 @@ void expr_ident(parser_t* p, var_t *inf){
         else emit_access_got(p->m, r,parent.got_index);
     }else{
         emit_mov_r2r(p->m, r, REG_BP);
-        emit_sub_regimm(p->m, r, parent.got_index);
+        if(parent.is_arg)
+            emit_add_regimm(p->m, r, parent.got_index);
+        else
+            emit_sub_regimm(p->m, r, parent.got_index);;
         // emit_sub_rbx(p->m, parent.base_addr);
     }
     parent.reg_used = r;

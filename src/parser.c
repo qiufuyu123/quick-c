@@ -122,7 +122,7 @@ int def_stmt(parser_t *p,int *ptr_depth,char *builtin,proto_t** proto,token_t *n
 
 void stmt(parser_t *p,bool expect_end);
 
-int arg_decl(parser_t *p,int offset,hashmap_t *dst,char *btin,bool is_decl){
+int arg_decl(parser_t *p,int offset,hashmap_t *dst,char *btin,bool is_decl,u64 **offset_ptr, bool is_extra_arg){
     int ptr_depth;
     char builtin = TP_UNK;
     proto_t *type;
@@ -133,7 +133,10 @@ int arg_decl(parser_t *p,int offset,hashmap_t *dst,char *btin,bool is_decl){
         return sz;
     }
     var_t *r = var_new_base(builtin, offset+sz, ptr_depth, 0, type,0);
+    r->is_arg = is_extra_arg;
     token_t name = p->l->tk_now;
+    if(offset_ptr)
+        *offset_ptr = &r->got_index;
     if(!hashmap_get(dst, &p->l->code[name.start], name.length)){
         hashmap_put(dst, &p->l->code[name.start], name.length, r);
         
@@ -171,7 +174,8 @@ int proto_decl(parser_t *p,int offset,hashmap_t *dst){
 
 void restore_arg(parser_t *p,int no,int offset,char w){
     if(no > 6){
-        trigger_parser_err(p, "Too many args!");
+         trigger_parser_err(p, "Too many args!");
+        
     }
     // we dont care reg allocation here
     // since restore_arg is always at the beginning of a function
@@ -217,19 +221,33 @@ int solve_func_sig(parser_t *p,function_frame_t *func,bool is_restore){
     int no  = 1;
     int sz = 0;
     char builtin;
+    u64 * offset_ptr = 0;
+    vec_t arg_list;
+    vec_init(&arg_list, 8, 4);
     while (!lexer_skip(p->l, ')')) {
         lexer_next(p->l);
         
-        sz = arg_decl(p, offset, &func->arg_table,&builtin,is_restore);
-        offset+=sz;
-        if(is_restore)
-            restore_arg(p, no, offset, sz==8?TP_U64:builtin);
+        sz = arg_decl(p, offset, &func->arg_table,&builtin,is_restore,&offset_ptr,no>6);
+        if(no > 6){
+            vec_push(&arg_list, &offset_ptr);
+        }else{
+            offset+=sz;
+            if(is_restore)
+                restore_arg(p, no, offset, sz==8?TP_U64:builtin);
+        }
         no++;
         if(lexer_skip(p->l, ')')){
             break;
         }
         lexer_expect(p->l, ',');
     }
+    if(arg_list.size){
+        for (int i=0; i<arg_list.size; i++) {
+            u64** val= (u64**)vec_at(&arg_list, i);
+            **val = 24+(arg_list.size-i-1)*8;
+        }
+    }
+    vec_release(&arg_list);
     return offset;
 }
 
