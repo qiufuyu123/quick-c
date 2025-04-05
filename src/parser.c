@@ -544,32 +544,78 @@ char prep_rax(parser_t *p,var_t inf){
 void stmt(parser_t *p,bool expect_end){
     Tk tt= p->l->tk_now.type;
     if(tt == TK_TYPEDEF){
-        lexer_expect(p->l, TK_STRUCT);
-        
-        lexer_expect(p->l, '{');
-        bool is_exist = 0;
-        proto_t *new_type=0;
-        
-        new_type= proto_new(0);
-        int offset=0;
-        while (!lexer_skip(p->l, '}')) {
+        if(lexer_skip(p->l, TK_STRUCT)){
+            lexer_expect(p->l, TK_STRUCT);
+            
+            lexer_expect(p->l, '{');
+            bool is_exist = 0;
+            proto_t *new_type=0;
+            
+            new_type= proto_new(0);
+            int offset=0;
+            while (!lexer_skip(p->l, '}')) {
+                lexer_next(p->l);
+                offset+=proto_decl(p, offset, new_type?&new_type->subs:0);
+                lexer_expect(p->l, ';');
+            }
             lexer_next(p->l);
-            offset+=proto_decl(p, offset, new_type?&new_type->subs:0);
-            lexer_expect(p->l, ';');
-        }
-        lexer_next(p->l);
-        token_t tk = lexer_next(p->l);
-        if(tk.type != TK_IDENT){
-            trigger_parser_err(p, "Struct needs an identity name!");
-        }
-        if(hashmap_get(&p->m->prototypes, &p->l->code[tk.start], tk.length)){
-            free(new_type);
-            trigger_parser_err(p, "Expect struct name!");
-        }
-        if(new_type){
-            new_type->len = offset;
-            hashmap_put(&p->m->prototypes, &p->l->code[tk.start], tk.length, new_type);
-            //proto_debug(new_type);
+            token_t tk = lexer_next(p->l);
+            if(tk.type != TK_IDENT){
+                trigger_parser_err(p, "Struct needs an identity name!");
+            }
+            if(hashmap_get(&p->m->prototypes, &p->l->code[tk.start], tk.length)){
+                free(new_type);
+                trigger_parser_err(p, "Expect struct name!");
+            }
+            if(new_type){
+                new_type->len = offset;
+                hashmap_put(&p->m->prototypes, &p->l->code[tk.start], tk.length, new_type);
+                //proto_debug(new_type);
+            }
+        }else if(lexer_skip(p->l, TK_ENUM)){
+            lexer_expect(p->l, TK_ENUM);
+            lexer_expect(p->l, '{');
+            u64 now_value = 0;
+            while (!lexer_skip(p->l, '}')) {
+                token_t name = lexer_next(p->l);
+                if(name.type != TK_IDENT){
+                    trigger_parser_err(p, "An identify is required in enum!");
+                }
+                if(lexer_skip(p->l, '=')){
+                    lexer_expect(p->l, '=');
+                    lexer_next(p->l);
+                    var_t var;
+                    expr(p, &var, OPP_Assign, 0);
+                    if(!var.is_const){
+                        printf("%llx\n",var.got_index);
+                        trigger_parser_err(p, "The value of an enum key must be a constant!");
+                    }
+                    if(var.type >= TP_INTEGER){
+                        trigger_parser_err(p, "The value of an enum key must be an integer!");
+                    }
+                    now_value = var.got_index;
+                }
+
+                token_t val={TK_INT,0,0,0,.integer=now_value};
+            
+                lex_def_const(p->l, name, val);
+                now_value++;
+                if(lexer_skip(p->l, ',')){
+                    lexer_expect(p->l,',');
+                }
+            }
+            lexer_expect(p->l, '}');
+            if(!lexer_skip(p->l, ';')){
+                if(!lexer_skip(p->l, TK_IDENT)){
+                    trigger_parser_err(p, "Require enum name!");
+                }
+                token_t name = lexer_next(p->l);
+                token_t val={TK_U64,0,0,0,.integer=now_value};
+
+                lex_def_const(p->l, name,val);
+            }
+        }else{
+            trigger_parser_err(p, "'struct' or 'enum' is required after a typedef!");
         }
         
     }else if(tt == TK_ENUM){
