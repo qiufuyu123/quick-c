@@ -226,7 +226,9 @@ int solve_func_sig(parser_t *p,function_frame_t *func,bool is_restore){
     vec_init(&arg_list, 8, 4);
     while (!lexer_skip(p->l, ')')) {
         lexer_next(p->l);
-        
+        if(p->l->tk_now.type == TK_VA_ARG){
+            continue;
+        }
         sz = arg_decl(p, offset, &func->arg_table,&builtin,is_restore,&offset_ptr,no>6);
         if(no > 6){
             vec_push(&arg_list, &offset_ptr);

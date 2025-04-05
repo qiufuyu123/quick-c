@@ -314,7 +314,12 @@ token_t lexer_next(Lexer_t *lex){
         return lexer_next(lex);
     }
     // symbols
-
+    if(c == '.' && lex->code[lex->cursor+1] == '.' && lex->code[lex->cursor+2] == '.' ){
+        lex->tk_now.length = 3;
+        lex->tk_now.type = TK_VA_ARG;
+        lex->cursor+=3;
+        return lex->tk_now;
+    }
     for (int i =0; i<18; i++) {
         if(c == binary_op[i][0] && lex->code[lex->cursor+1] == binary_op[i][1]){
             lex->tk_now.length=2;

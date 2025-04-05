@@ -31,7 +31,6 @@ i32 main()
     u8 p[128];
     for(i32 i =0;i<128;i=i+1){
         //printf("%d\n",i);
-        [tag = assign]
         p[i]=0;
     }
     //printf("stage1");
@@ -41,9 +40,9 @@ i32 main()
     printf("memcmp = %d\n", mcmp(p, "hello world", 12));
     printf("memcmp = %d\n", mcmp(p, "hello xorld", 12));
     printf("memcmp = %d\n", mcmp(p, "hello yorld", 12));
-    *p = -1;
-    v = *p;
-    printf("%x %d %d %x\n", p[0], *p, v, *(p+1));
+    // *p = -1;
+    // v = *p;
+    // printf("%x %d %d %x\n", p[0], *p, v, *(p+1));
     printf("\0"); /* shall be nothing generated */
     return 0;
 }

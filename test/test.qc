@@ -1,4 +1,4 @@
-u64 foo(u64 a,u64 b,u64 c,u64 d,u64 e,u64 f, u64 g,u64 h){
+u64 foo(u64 a,u64 b,u64 c,u64 d,u64 e,u64 f, u64 g,u64 h,...){
    return g+h;
 }
 

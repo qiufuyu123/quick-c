@@ -1,3 +1,4 @@
+
 #include "../../libqc/io.qh"
 i32 fib(u64 a){
     u64 b = 1;
@@ -8,6 +9,9 @@ i32 fib(u64 a){
     return b;
 }
 u8 main(){
+    printf("%d\n",233);
+    printf("%d\n",fib(1));
     printf("%d %d %d %d %d \n",fib(1),fib(2),fib(3),fib(4),fib(5));
     return 0;
 }
+//fib(fib(6));

@@ -144,7 +144,7 @@ void prepare_calling(parser_t*p, char call_r){
     lexer_next(p->l);
     no--;
     if(no>6){
-        emit(p->m,0x6a);emit(p->m,no-6);
+        emit(p->m,0x6a);emit(p->m,no-6);  // PUSH No. of args
     }
     if(no<6)offset = emit_offset_stack(p->m);
     emit_call_reg(p->m, call_r);
