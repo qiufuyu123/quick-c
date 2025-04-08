@@ -51,7 +51,7 @@ void* var_exist_glo(parser_t *p);
 
 char acquire_reg(parser_t *p);
 void release_reg(parser_t *p,char r);
-
+void prepare_calling(parser_t*p, char call_r,char this_r);
 int def_stmt(parser_t *p,int *ptr_depth,char *builtin,proto_t** proto,token_t *name,bool need_var_name);
 int var_get_base_len(char type);
 bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const);

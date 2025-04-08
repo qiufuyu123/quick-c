@@ -1,6 +1,7 @@
 #include "vm.h"
 #include "define.h"
 #include "hashmap.h"
+#include "lex.h"
 #include "parser.h"
 #include "vec.h"
 #include <stdio.h>
@@ -47,6 +48,9 @@ void module_init(module_t *v, vm_string_t name){
         panic_oom("Fail to alloc local_sym_table");
     }
     if(hashmap_create(2, &v->prototypes)){
+        panic_oom("Fail to alloc prototypes");
+    }
+    if(hashmap_create(2, &v->const_table)){
         panic_oom("Fail to alloc prototypes");
     }
     v->data = DATA_MASK;
@@ -170,6 +174,7 @@ var_t* var_new_base(char type,u64 v,int ptr,bool isglo,proto_t* prot,bool isarr)
 proto_t* proto_new(int base_len){
     proto_t* t = malloc(sizeof(proto_t));
     t->len = base_len;
+    hashmap_create(1, &t->impls);
     hashmap_create(1, &t->subs);
     return t;
 }
@@ -193,10 +198,17 @@ int _iter_destroy_subproto(void *const context,struct hashmap_element_s* const e
 }
 
 int _iter_destroy_proto(void *const context,struct hashmap_element_s* const e){
-    proto_t *prot = (var_t*)e->data;
+    proto_t *prot = (proto_t*)e->data;
     hashmap_iterate_pairs(&prot->subs, _iter_destroy_subproto, 0);
     hashmap_destroy(&prot->subs);
+    hashmap_destroy(&prot->impls);
     free(prot);
+    return -1;
+}
+
+int _iter_destroy_const(void *const context,struct hashmap_element_s* const e){
+    token_t *tok = (token_t*)e->data;
+    free(tok);
     return -1;
 }
 
@@ -216,6 +228,11 @@ int _iter_destroy(void *const context,struct hashmap_element_s* const e){
 
 void module_clean_proto(module_t *v){
     hashmap_iterate_pairs(&v->prototypes, _iter_destroy_proto, 0);
+}
+
+void module_clean_const(module_t *v){
+    printf("const table entries:%d\n",v->const_table.size);
+    hashmap_iterate_pairs(&v->const_table, _iter_destroy_const, 0);
 }
 
 void module_clean_stack_sym(module_t *v){
@@ -373,9 +390,11 @@ void emit_data(module_t*v,char w,void* data){
 void module_release(module_t *entry){
     module_clean_glo_sym(entry);
     module_clean_proto(entry);
+    module_clean_const(entry);
     hashmap_destroy(&entry->sym_table);
     hashmap_destroy(&entry->local_sym_table);
     hashmap_destroy(&entry->prototypes);
+    hashmap_destroy(&entry->const_table);
     vec_release(&entry->export_table);
     vec_release(&entry->str_table);
     vec_release(&entry->got_table);

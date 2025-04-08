@@ -7,7 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-static hashmap_t const_table;
 token_t line_macro;
 
 static inline int is_whitespace(char ch) {
@@ -19,7 +18,7 @@ static inline int is_decimal_digit(char ch) {
 }
 
 static inline int is_ident_start(char ch) {
-	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_' || ch == '#';
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_' || ch == '#' || ch == '$';
 }
 
 static inline int is_ident_continue(char ch) {
@@ -76,14 +75,20 @@ void lex_def_const(Lexer_t *lxr, token_t name, token_t val){
     // if(val.type != TK_INT){
     //     trigger_lex_error(lxr, "#define/const expect a number const!");
     // }
+    // printf("call lex_def_const!\n");
+    token_t *old=hashmap_get(lxr->const_table, &lxr->code[name.start], name.length);
+    if(old){
+        *old = val;
+        return;
+    }
     token_t *copy = calloc(1, sizeof(token_t));
     *copy = val;
-    hashmap_put(&const_table, &lxr->code[name.start], name.length, (void*)copy);
+    hashmap_put(lxr->const_table, &lxr->code[name.start], name.length, (void*)copy);
 }
 
 char lex_ifdef_const(Lexer_t *lxr, token_t name){
     void *x = 0;
-    return hashmap_exist(&const_table, &lxr->code[name.start], name.length, &x);
+    return hashmap_exist(lxr->const_table, &lxr->code[name.start], name.length, &x);
 }
 
 static void lex_float(Lexer_t *lxr){
@@ -143,12 +148,12 @@ static token_t lex_ident(Lexer_t *lxr) {
 	static char *keywords[] = {
 		 "if", "else", "#ifdef", "#endif", "while", "for", "typedef", "struct","#include","#pragma","#define","extern","break","continue","true",
 		"false", "#ifndef", "i8","u8","i16","u16","i32","u32",
-        "i64","u64","return","sizeof","enum","__jit__","offsetof",NULL,
+        "i64","u64","return","sizeof","enum","__jit__","offsetof","impl",NULL,
 	};
 	static Tk keyword_tks[] = {
 		 TK_IF, TK_ELSE, TK_IFDEF, TK_ENDIF, TK_WHILE, TK_FOR, TK_TYPEDEF,TK_STRUCT,TK_IMPORT,TK_PRAGMA,TK_DEFINE,TK_EXTERN,TK_BREAK,TK_CONTINUE,
 		TK_TRUE, TK_FALSE, TK_IFNDEF,TK_I8,TK_U8,TK_I16,TK_U16,TK_I32,TK_U32,TK_I64
-        ,TK_U64,TK_RETURN,TK_SIZEOF,TK_ENUM,TK_JIT,TK_OFFSETOF
+        ,TK_U64,TK_RETURN,TK_SIZEOF,TK_ENUM,TK_JIT,TK_OFFSETOF,TK_IMPL
 	};
 
 	// Compare the identifier against reserved language keywords
@@ -162,7 +167,7 @@ static token_t lex_ident(Lexer_t *lxr) {
 	}
     
     token_t *macro_data;
-    if(lxr->need_macro && hashmap_exist(&const_table, &lxr->code[lxr->tk_now.start], lxr->tk_now.length, (void*)&macro_data)){
+    if(lxr->need_macro && hashmap_exist(lxr->const_table, &lxr->code[lxr->tk_now.start], lxr->tk_now.length, (void*)&macro_data)){
        lxr->tk_now.type = macro_data->type;
        lxr->tk_now.integer = macro_data->integer;
     }else {
@@ -184,8 +189,7 @@ void lexer_init(Lexer_t *lex,char *path, char *code){
     lex->col = 0;
     lex->tk_now.type = 0;
     lex->need_macro = 1;
-    if(!const_table.data )
-        hashmap_create(2,&const_table);
+    
     // token_t *now_line = calloc(1, sizeof(token_t));
     // line_macro.type = TK_INT;
     // line_macro.integer = lex->line;
@@ -200,7 +204,7 @@ void lexer_free(Lexer_t *lex){
 
 
 void macro_free(){
-    hashmap_destroy(&const_table);
+    // hashmap_destroy(&const_table);
 }
 #define MUTLI_SUB_TK(b,t)\
         if (lex->code[lex->cursor + 1] == b) { \

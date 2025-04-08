@@ -88,11 +88,18 @@ void* var_exist_glo(parser_t *p){
  * WTF is this fucking codes...
  *      vvv
  */
-void prepare_calling(parser_t*p, char call_r){
+void prepare_calling(parser_t*p, char call_r,char this_r){
     var_t inf;
     int no = 1,old_no = p->caller_regs_used;
     for (int i = 1; i<=p->caller_regs_used; i++) {
         backup_caller_reg(p->m, i);
+    }
+    if(this_r != REG_FULL){
+        no++;
+        if(no > p->caller_regs_used){
+            p->caller_regs_used = no;
+        }
+        emit_mov_r2r(p->m, REG_DI, this_r);
     }
      
     p->reg_table.reg_used[call_r]=0; // To ignore the call register itself
@@ -143,6 +150,7 @@ void prepare_calling(parser_t*p, char call_r){
     }
     lexer_next(p->l);
     no--;
+    printf("This call :%d args!\n",no);
     if(no>6){
         emit(p->m,0x6a);emit(p->m,no-6);  // PUSH No. of args
     }
@@ -174,7 +182,7 @@ void func_call(parser_t *p,var_t* inf){
         
         function_frame_t *func = (function_frame_t*)inf->got_index;
         // set up arguments
-        prepare_calling(p,inf->reg_used);
+        prepare_calling(p,inf->reg_used,REG_FULL);
         // emit_mov_r2r(p->m, REG_AX, REG_BX);
         //                
         
@@ -185,7 +193,7 @@ void func_call(parser_t *p,var_t* inf){
 
         emit_mov_addr2r(p->m, inf->reg_used, inf->reg_used,TP_U64);
         // ax--> jump dst
-        prepare_calling(p,inf->reg_used);
+        prepare_calling(p,inf->reg_used,REG_FULL);
         inf->ptr_depth--;
     }else {
         printf("type:%d, ptr_depth:%d\n",inf->type,inf->ptr_depth);
@@ -194,8 +202,7 @@ void func_call(parser_t *p,var_t* inf){
 }
 
 void prep_assign(parser_t *p,var_t *v){
-    if(v->type == TP_CUSTOM && v->ptr_depth == 0)
-        trigger_parser_err(p, "Struct is not supported");
+    
     if(v->isglo){
         emit_access_got(p->m, v->reg_used, v->got_index);
     }
@@ -568,7 +575,7 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
             array_visit(p, &left, 0);
             need_load = 1;
         }else {
-            if(left.is_arr==0)
+            if(left.is_arr==0 && left.type != TP_FUNC)
                 need_load = 1;
         }
     }
@@ -743,16 +750,42 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
             proto_sub_t pro_sub;
             int r = struct_offset(p, left.prot, name_token,&pro_sub);
             if(r == -1){
-                trigger_parser_err(p, "Cannot find the member!");
+                //Case 2: impl function
+                //
+                var_t *impl_func = hashmap_get(&left.prot->impls, &p->l->code[name_token.start], name_token.length);
+                if(!impl_func)
+                    trigger_parser_err(p, "Cannot find the member!");
+                function_frame_t *impl_func_frame = (function_frame_t*)impl_func->got_index;
+                if(lexer_skip(p->l, '(')){
+                    printf("var len:%d\n",impl_func_frame->arg_table.size);
+
+                    lexer_next(p->l);
+                    char parent_reg = acquire_reg(p);
+                    emit_access_got(p->m, parent_reg, impl_func_frame->got_index);
+                    // emit_mov_r2r(p->m, REG_DI, left.reg_used);
+                    prepare_calling(p,parent_reg , left.reg_used);
+                    emit_mov_r2r(p->m, left.reg_used, parent_reg);
+                    release_reg(p, parent_reg);
+                    left.ptr_depth = impl_func_frame->ret_type.ptr_depth;
+                    left.type = impl_func_frame->ret_type.builtin;
+                    left.prot = impl_func_frame->ret_type.type;
+
+                }else{
+                    emit_access_got(p->m, left.reg_used, impl_func_frame->got_index);
+                    left.type = TP_U64;
+                    left.prot = 0;
+                    left.ptr_depth = 0;
+                }
+            }else{
+                left.prot = pro_sub.type;
+                left.type = pro_sub.builtin;
+                left.ptr_depth = pro_sub.ptr_depth;
+                left.is_arr = pro_sub.is_arr;
+                if(r)
+                    emit_add_regimm(p->m, left.reg_used, r);
+                if(!left.is_arr)
+                    need_load = 1;
             }
-            left.prot = pro_sub.type;
-            left.type = pro_sub.builtin;
-            left.ptr_depth = pro_sub.ptr_depth;
-            left.is_arr = pro_sub.is_arr;
-            if(r)
-                emit_add_regimm(p->m, left.reg_used, r);
-            if(!left.is_arr)
-                need_load = 1;
         }
         else {
     

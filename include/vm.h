@@ -40,6 +40,7 @@ typedef struct{
 typedef struct{
     int len;
     hashmap_t subs;
+    hashmap_t impls;
 }proto_t;
 
 typedef struct{
@@ -79,6 +80,7 @@ typedef struct{
 
     hashmap_t local_sym_table;
 
+    hashmap_t const_table;
     vec_t export_table;
     vec_t str_table;
     vec_t got_table;
