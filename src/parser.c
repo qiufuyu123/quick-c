@@ -457,9 +457,9 @@ int def_or_assign(parser_t *p){
                 if(nv->type != TP_CUSTOM || nv->ptr_depth){
                     trigger_parser_err(p, "Initializing needs a struct!");
                 }
-                var_t *init_func = hashmap_get(&nv->prot->impls, "__init__",8);
+                var_t *init_func = hashmap_get(&nv->prot->impls, "new",3);
                 if(!init_func){
-                    trigger_parser_err(p, "Parent struct does not impl __init__");
+                    trigger_parser_err(p, "Parent struct does not impl new");
                 }
                 function_frame_t *func = (function_frame_t*)init_func->got_index;
                 char newr = acquire_reg(p);

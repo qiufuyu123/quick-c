@@ -60,7 +60,7 @@ impl(test_t) i8 get(test_t *this){
     return 1;
 }
 
-impl(test_init_t) i8 __init__(test_init_t *this){
+impl(test_init_t) i8 new(test_init_t *this){
     this->a = 1;
     this->b = 2;
 }

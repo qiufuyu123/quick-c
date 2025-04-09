@@ -515,7 +515,37 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
         left.ptr_depth++;
         // emit_mov_r2r(p->m, REG_AX, REG_BX);
 
-    }else if(type == TK_JIT){
+    }else if(type == '['){
+        token_t type_name = lexer_next(p->l);
+        if(type_name.type < TK_I8 || type_name.type > TK_U64){
+            trigger_parser_err(p, "array constant only allows for basic types!");
+        }
+        int len = var_get_base_len(type_name.type - TK_I8 + TP_I8);
+        int cnt = 0;
+        u32 *len_ptr = (u32*)vec_reserv(&p->m->str_table, 4);
+        u64 ret = (u64)vec_top(&p->m->str_table)+1-(u64)p->m->str_table.data;
+        while (!lexer_skip(p->l, ']')) {
+            lexer_next(p->l);
+            var_t v={0,0,0,0,0,0,0,0};
+            expr(p, &v, OPP_Assign, 0);
+            if(!v.is_const){
+                trigger_parser_err(p, "elements in array constant must be constant!");
+            }
+            vec_push_n(&p->m->str_table, &v.got_index, len);
+            cnt++;
+            if(lexer_skip(p->l, ','))
+                lexer_next(p->l);
+        }
+        *len_ptr = cnt;
+        lexer_next(p->l);
+        char r = acquire_reg(p);
+        emit_access_got(p->m, r, 1);
+        emit_add_regimm(p->m, r, ret);
+        left.reg_used = r;
+        left.ptr_depth = 1;
+        left.type = TP_U8;
+    }
+    else if(type == TK_JIT){
         // @register
         lexer_next(p->l);
         token_t name = p->l->tk_now;
