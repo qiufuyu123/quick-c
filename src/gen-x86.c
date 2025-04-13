@@ -254,21 +254,45 @@ void emit_gsbase(module_t *v, char r, char is_read){
     }
 }
 
+void emit_cmp_zero(module_t *v,char r,char operand_wide){
+    if(r >= REG_R8) {
+        emit(v, 0x49);  // REX.W prefix for R8-R15
+    } else if(operand_wide == TP_U64 || operand_wide == TP_I64) {
+        emit(v, 0x48);  // REX.W prefix for 64-bit operation
+    }
+    
+    if(operand_wide == TP_U16 || operand_wide == TP_I16) {
+        emit(v, 0x66);  // 16-bit operand size prefix
+    }
+    
+    if(operand_wide == TP_U8 || operand_wide == TP_I8) {
+        emit(v, 0x80);
+    } else {
+        emit(v, 0x83);
+    }
+    
+    char opcode = 0xF8;  // Base opcode for cmp reg, imm8
+    if(r >= REG_R8) {
+        opcode += (r - REG_R8);
+    } else {
+        opcode += (r - REG_AX);
+    }
+    emit(v, opcode);
+    emit(v, 0x00);  // Immediate value 0
+}
+
 void emit_unary(module_t *v,char r, char type){
-    if(type == UOP_NOT){
-        emit(v, r>=REG_R8?0x49:0x48);
+    emit(v, r>=REG_R8?0x49:0x48);
+    if(type == UOP_NOT){ 
         emit(v, 0xf7);
         emit(v, r>=REG_R8?r-REG_R8+0xd0:r-REG_AX+0xd0);
     }else if(type == UOP_NEG){
-        emit(v, r>=REG_R8?0x49:0x48);
         emit(v, 0xf7);
         emit(v, r>=REG_R8?r-REG_R8+0xd8:r-REG_AX+0xd8);
     }else if(type == UOP_INC){
-        emit(v, r>=REG_R8?0x49:0x48);
         emit(v, 0xff);
         emit(v, r>=REG_R8?r-REG_R8+0xc0:r-REG_AX+0xc0);
     }else if(type == UOP_DEC){
-        emit(v, r>=REG_R8?0x49:0x48);
         emit(v, 0xff);
         emit(v, r>=REG_R8?r-REG_R8+0xc8:r-REG_AX+0xc8);
     }
@@ -279,6 +303,14 @@ void emit_binary(module_t *v,char dst,char src, char type,char opwide){
                                             type == BOP_OR?0x09:
                                             type == BOP_AND?0x21:
                                             0x31,opwide);
+}
+void emit_setzn(module_t *v, char r) {
+    if (r >= REG_R8) {
+        emit(v, 0x41);  // REX.B prefix for R8-R15
+    }
+    emit(v, 0x0f);  // setz 指令前缀
+    emit(v, 0x95);  // setz 操作码
+    emit(v, 0xc0 | (r & 0x07));  // 目标寄存器编码
 }
 // void emit_xor_reg(module_t *v,c)
 #endif

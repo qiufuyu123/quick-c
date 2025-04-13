@@ -220,6 +220,10 @@ void emit_unary(module_t *v,char r, char type);
 
 void emit_binary(module_t *v,char dst,char src, char type,char opwide);
 
+void emit_setzn(module_t *v, char r);
+
+void emit_cmp_zero(module_t *v,char r,char operand_wide);
+
 void emit_gsbase(module_t *v, char r, char is_read);
 
 void emit_settry(module_t *v);

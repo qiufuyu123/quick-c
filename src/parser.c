@@ -452,11 +452,10 @@ int def_or_assign(parser_t *p){
             return 1;
         if(lexer_skip(p->l, '=')){
             lexer_next(p->l);
-            if(lexer_skip(p->l, '(')){
+            if(nv->type == TP_CUSTOM && nv->ptr_depth == 0 && lexer_skip(p->l, '(')){
+                trigger_parser_err(p, "Def_or_assign called!");
                 lexer_next(p->l);
-                if(nv->type != TP_CUSTOM || nv->ptr_depth){
-                    trigger_parser_err(p, "Initializing needs a struct!");
-                }
+                
                 var_t *init_func = hashmap_get(&nv->prot->impls, "new",3);
                 if(!init_func){
                     trigger_parser_err(p, "Parent struct does not impl new");
@@ -787,7 +786,7 @@ void stmt(parser_t *p,bool expect_end){
         expr(p,&inf,OPP_Assign,1);
         lexer_expect(p->l, ')');
         lexer_expect(p->l, '{');
-        char need_pop = prep_rax(p, inf);
+        // char need_pop = prep_rax(p, inf);
         
         if(inf.type == TP_CUSTOM && inf.ptr_depth == 0)
             trigger_parser_err(p, "Cannot compare!");
@@ -799,10 +798,12 @@ void stmt(parser_t *p,bool expect_end){
             else:end
 
         */
-        emit(p->m, 0x48);emit(p->m, 0x83);emit(p->m, 0xf8);emit(p->m, 0x00); // cmp rax,0
+        emit_cmp_zero(p->m, inf.reg_used, inf.ptr_depth?TP_U64:inf.type);
+        release_reg(p, inf.reg_used);
+        // emit(p->m, 0x48);emit(p->m, 0x83);emit(p->m, 0xf8);emit(p->m, 0x00); // cmp rax,0
         // emit(p->m, 0x3c);emit(p->m,0x00); // cmp al,0
-        if(need_pop)
-            emit_pop_reg(p->m, REG_AX);
+        // if(need_pop)
+        //     emit_pop_reg(p->m, REG_AX);
         emit(p->m, 0x75);emit(p->m,0x05);  // jne +0x05+
         i32* els_rel = emit_reljmp_flg(p->m);
         //u64* els = emit_jmp_flg(p->m);              // jmprel    |
@@ -859,10 +860,12 @@ void stmt(parser_t *p,bool expect_end){
         lexer_expect(p->l, '{');
         if(inf.type == TP_CUSTOM && inf.ptr_depth == 0)
             trigger_parser_err(p, "Cannot compare!");
-        char need_pop = prep_rax(p, inf);
-        emit(p->m, 0x3c);emit(p->m,0x00); // cmp al,0
-        if(need_pop)
-            emit_pop_reg(p->m,REG_AX);
+        // char need_pop = prep_rax(p, inf);
+        emit_cmp_zero(p->m, inf.reg_used, inf.ptr_depth?TP_U64:inf.type);
+        release_reg(p, inf.reg_used);
+        // emit(p->m, 0x3c);emit(p->m,0x00); // cmp al,0
+        // if(need_pop)
+            // emit_pop_reg(p->m,REG_AX);
         emit(p->m, 0x75);emit(p->m,0x05);  // je +0x05 +
         u64 break_adr = (u64)jit_top(p->m);
         // u64* els = emit_jmp_flg(p->m);  // jmpq rax |
@@ -895,10 +898,12 @@ void stmt(parser_t *p,bool expect_end){
         expr(p, &inf,OPP_Assign,1);
         if(inf.type == TP_CUSTOM && inf.ptr_depth == 0)
             trigger_parser_err(p, "Cannot compare!");
-        char need_pop = prep_rax(p, inf);
-        emit(p->m, 0x3c);emit(p->m,0x00); // cmp al,0
-        if(need_pop)
-            emit_pop_reg(p->m, REG_AX);
+        // char need_pop = prep_rax(p, inf);
+        emit_cmp_zero(p->m, inf.reg_used, inf.ptr_depth?TP_U64:inf.type);
+        release_reg(p, inf.reg_used);
+        // emit(p->m, 0x3c);emit(p->m,0x00); // cmp al,0
+        // if(need_pop)
+            // emit_pop_reg(p->m, REG_AX);
         emit(p->m, 0x75);emit(p->m,0x05*2);  // je +0x05*2 +
         u64 break_adr = (u64)jit_top(p->m);
         // u64* end_for = emit_jmp_flg(p->m);

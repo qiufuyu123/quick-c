@@ -10,7 +10,7 @@
 extern u64 debuglibs[2];
 
 #define VALID_REG(i) (((i<6)||(i>9))&&(i!=REG_DX)&&(i!=REG_CX)&&(i != REG_SP)&&(i != REG_BP)&&(i != REG_R13)&&(i != REG_R12))
-
+extern void gen_rel_jmp(parser_t *p, i32 *flg, u64 target);
 void load_const(parser_t *p, var_t *left){
     if(left->is_const == 0){
         return;
@@ -377,8 +377,8 @@ int token2opp(Tk type){
         {'&',OPP_And},
         {'|',OPP_Or},
         {'^',OPP_Xor},
-        {TK_OR,OPP_Or},
-        {TK_AND,OPP_And},
+        {TK_LOGIC_OR,OPP_Lor},
+        {TK_LOGIC_AND,OPP_Lan},
         {TK_EQ,OPP_Eq},
         {TK_GE,OPP_Ge},
         {TK_LE,OPP_Le},
@@ -782,6 +782,7 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
             if(r == -1){
                 //Case 2: impl function
                 //
+                trigger_parser_err(p, "Impl func called!");
                 var_t *impl_func = hashmap_get(&left.prot->impls, &p->l->code[name_token.start], name_token.length);
                 if(!impl_func)
                     trigger_parser_err(p, "Cannot find the member!");
@@ -909,9 +910,9 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
                     if(need_pop)
                         emit_pop_reg(p->m, REG_AX);
                 }
-            }else if(type == '|' || type == '&' || type == '^' || type == TK_AND || type == TK_OR){
-                bool or = (type == '|')||(type == TK_OR);
-                bool and = (type == '&')||(type == TK_AND);
+            }else if(type == '|' || type == '&' || type == '^'){
+                bool or = (type == '|');
+                bool and = (type == '&');
                 bool xor = type == '^';
                 // emit_pushrax(p->m);
                 lexer_next(p->l);
@@ -930,7 +931,33 @@ bool expr(parser_t *p, var_t *inf,int ctx_priority,char no_const){
                     release_reg(p, right.reg_used);
                 }
 
-            }else if(type == TK_LSHL || type == TK_LSHR){
+            }else if(type == TK_LOGIC_AND || type == TK_LOGIC_OR){
+                bool and = (type == TK_LOGIC_AND);
+                lexer_next(p->l);
+                load_const(p, &left);
+                if(left.ptr_depth ==0 && left.type == TP_CUSTOM)
+                    trigger_parser_err(p, "Left value must be builtin type or a pointer!");
+                emit_cmp_zero(p->m, left.reg_used, left.ptr_depth?TP_U64:left.type);
+                emit_load(p->m, left.reg_used, and?0:1);
+                emit(p->m, 0x0f);emit(p->m, and?0x84:0x85);
+                i32* branch = (i32*)emit_flg(p->m, 4);
+                expr(p, &right, and?OPP_Lan:OPP_Or, 0);
+                if(right.ptr_depth == 0 && right.type == TP_CUSTOM)
+                    trigger_parser_err(p, "Right value must be builtin type or a pointer!");
+                if(right.is_const){
+                    emit_load(p->m, left.reg_used, right.got_index != 0);
+                }else{
+                    emit_cmp_zero(p->m, right.reg_used, right.ptr_depth?TP_U64:right.type);
+                    // if(!and){
+                    //     emit_binary(p->m, left.reg_used, left.reg_used, BOP_XOR, TP_U64);
+                    // }
+                    emit_setzn(p->m, left.reg_used);
+                }
+                if(!right.is_const)
+                    release_reg(p, right.reg_used);
+                gen_rel_jmp(p, branch, (u64)jit_top(p->m));
+            }
+            else if(type == TK_LSHL || type == TK_LSHR){
                 bool lsl = type == TK_LSHL;
                 // emit_pushrax(p->m);
                 lexer_next(p->l);
